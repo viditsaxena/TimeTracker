@@ -23,9 +23,11 @@ When the timer is off, you'll see a timer icon in the menu bar. When it's runnin
 
 The window shows your Work and Music time separately. Each day has two bars, and you can look back at earlier weeks. Hover over a bar to see the exact time. You can also see each session and export your sessions as a CSV file. The CSV uses UTC for its dates and times.
 
-If you got a session wrong, click it in the list. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** and the totals and bars will update. TimeTracker won't save an edit that overlaps another session.
+If you forgot to track a few minutes, find the session and click **+5m**, **+10m**, **+15m**, or **+20m** right there. The time is added to that session in one click. The totals and bars update too. You can click again to add more. If that would run into another session, TimeTracker will tell you on the same row.
 
-If you forgot to start the timer, click **Add missed time** in the window or menu bar. Pick when you finished and whether it was Work or Music, then click **5 min**, **10 min**, **15 min**, or **20 min**. That click saves the session. You can also type a different duration and click **Add**. TimeTracker puts the new block before the end time you chose and won't add it on top of another session.
+If you got more than the duration wrong, click the session itself. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** when you're done. TimeTracker won't save an edit that overlaps another session.
+
+If there's no session to add to, click **Add missed time** in the window or menu bar. Pick when you finished and whether it was Work or Music, then click **5 min**, **10 min**, **15 min**, or **20 min**. That click saves a new session. You can also type a different duration and click **Add**. TimeTracker puts the new block before the end time you chose and won't add it on top of another session.
 
 Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops the timer. It won't start again on its own. If the app closes unexpectedly, it recovers time through its last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
 

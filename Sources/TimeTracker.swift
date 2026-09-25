@@ -77,6 +77,15 @@ final class Tracker: ObservableObject {
         onChange?()
     }
 
+    func extendSession(id: UUID, by minutes: Int) throws {
+        now = Date()
+        var next = data
+        try next.extendSession(id: id, by: TimeInterval(minutes * 60), now: now)
+        try file.save(next)
+        data = next
+        onChange?()
+    }
+
     @discardableResult
     func addSession(endingAt end: Date, duration: TimeInterval, category: TrackingCategory) throws -> Session {
         now = Date()
@@ -115,6 +124,7 @@ struct Dashboard: View {
     @State private var weekOffset = 0
     @State private var editingSession: Session?
     @State private var showingAddMissedTime = false
+    @State private var quickAddError: (id: UUID, message: String)?
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -186,32 +196,48 @@ struct Dashboard: View {
                     Text(tracker.isRunning && weekOffset == 0 ? "Your current session will appear here when you stop." : "No sessions this week. Press ⌥ Space to begin.")
                         .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 12)
                 } else {
-                    Text("Click a session to fix its time.")
+                    Text("Add time to a session below, or click it to edit.")
                         .font(.caption).foregroundStyle(.secondary)
                     LazyVStack(spacing: 0) {
                         ForEach(sessions) { session in
-                            Button {
-                                editingSession = session
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        HStack(spacing: 6) {
-                                            Circle().fill(session.category.color).frame(width: 6, height: 6)
-                                            Text(session.category.rawValue).foregroundStyle(session.category.color)
-                                            Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                                        }.font(.system(size: 12, weight: .medium))
-                                        Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
-                                            .font(.caption).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    quickAddError = nil
+                                    editingSession = session
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            HStack(spacing: 6) {
+                                                Circle().fill(session.category.color).frame(width: 6, height: 6)
+                                                Text(session.category.rawValue).foregroundStyle(session.category.color)
+                                                Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                            }.font(.system(size: 12, weight: .medium))
+                                            Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
+                                        Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
                                     }
-                                    Spacer()
-                                    Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
-                                    Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
+                                    .contentShape(Rectangle())
                                 }
-                                .contentShape(Rectangle())
-                                .padding(.vertical, 9)
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
+                                HStack(spacing: 7) {
+                                    Text("Add").font(.caption).foregroundStyle(.secondary)
+                                    ForEach([5, 10, 15, 20], id: \.self) { minutes in
+                                        Button("+\(minutes)m") { extend(session, by: minutes) }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
+                                            .accessibilityLabel("Add \(minutes) minutes to this \(session.category.rawValue) session")
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                if quickAddError?.id == session.id, let message = quickAddError?.message {
+                                    Text(message).font(.caption).foregroundStyle(.red)
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
+                            .padding(.vertical, 9)
                             Divider().opacity(0.5)
                         }
                     }
@@ -244,6 +270,19 @@ struct Dashboard: View {
         }
         .onChange(of: tracker.addMissedTimeRequest) { _, _ in
             showingAddMissedTime = true
+        }
+    }
+
+    private func extend(_ session: Session, by minutes: Int) {
+        do {
+            try tracker.extendSession(id: session.id, by: minutes)
+            quickAddError = nil
+        } catch SessionEditError.overlapsAnotherSession {
+            quickAddError = (session.id, "That would overlap the next session. Click the session to edit its time.")
+        } catch SessionEditError.futureTime {
+            quickAddError = (session.id, "That would put the end in the future. Try again later or edit the session.")
+        } catch {
+            quickAddError = (session.id, error.localizedDescription)
         }
     }
 

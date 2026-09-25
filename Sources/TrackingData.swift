@@ -93,6 +93,12 @@ struct TrackingData: Codable {
         sessions[index].category = category
     }
 
+    mutating func extendSession(id: UUID, by duration: TimeInterval, now: Date) throws {
+        guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }
+        guard let session = sessions.first(where: { $0.id == id }) else { throw SessionEditError.notFound }
+        try editSession(id: id, start: session.start, end: session.end.addingTimeInterval(duration), category: session.category, now: now)
+    }
+
     @discardableResult
     mutating func addSession(endingAt end: Date, duration: TimeInterval, category: TrackingCategory, now: Date) throws -> Session {
         guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }

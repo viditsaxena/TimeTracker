@@ -117,6 +117,43 @@ enum TrackingDataTests {
         let editedRoundTrip = try JSONDecoder().decode(TrackingData.self, from: JSONEncoder().encode(edited))
         assert(editedRoundTrip.sessions[0].start == changedStart && editedRoundTrip.sessions[0].category == .music)
 
+        var extended = TrackingData(sessions: [
+            Session(start: originalStart, end: originalStart.addingTimeInterval(600), category: .work),
+            Session(start: nextStart, end: nextStart.addingTimeInterval(600), category: .music)
+        ])
+        let extendedID = extended.sessions[0].id
+        for minutes in [5, 10, 15, 20] {
+            try extended.extendSession(id: extendedID, by: TimeInterval(minutes * 60), now: editNow)
+        }
+        assert(extended.sessions.count == 2 && extended.sessions[0].id == extendedID)
+        assert(extended.sessions[0].start == originalStart && extended.sessions[0].category == .work)
+        assert(extended.sessions[0].duration == 60 * 60)
+        assert(extended.total(in: editedDay, now: editNow, category: .work) == 60 * 60)
+        let unchangedEnd = extended.sessions[0].end
+        do {
+            try extended.extendSession(id: extendedID, by: 10 * 60, now: editNow)
+            fatalError("Extending into the next session must fail")
+        } catch SessionEditError.overlapsAnotherSession { }
+        assert(extended.sessions[0].end == unchangedEnd)
+        do {
+            try extended.extendSession(id: extendedID, by: 0, now: editNow)
+            fatalError("Zero-length extensions must fail")
+        } catch SessionEditError.invalidTime { }
+        do {
+            try extended.extendSession(id: UUID(), by: 300, now: editNow)
+            fatalError("An unknown session must fail")
+        } catch SessionEditError.notFound { }
+        do {
+            try extended.extendSession(id: extended.sessions[1].id, by: 300, now: nextStart.addingTimeInterval(600))
+            fatalError("Extending into the future must fail")
+        } catch SessionEditError.futureTime { }
+        extended.start(at: nextStart.addingTimeInterval(600))
+        do {
+            try extended.extendSession(id: extended.sessions[1].id, by: 60, now: editNow)
+            fatalError("Extending into the active timer must fail")
+        } catch SessionEditError.overlapsAnotherSession { }
+        assert(extended.sessions[0].end == unchangedEnd && extended.sessions[1].duration == 600)
+
         var missed = TrackingData()
         let missedDay = date("2026-09-25T08:00:00Z")
         let missedNow = date("2026-09-25T13:00:00Z")
@@ -171,6 +208,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: missed sessions, presets, overlap checks, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
+        print("Passed: one-click session extensions, missed sessions, presets, overlap checks, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
     }
 }
