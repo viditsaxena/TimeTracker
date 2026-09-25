@@ -7,14 +7,60 @@ enum TrackingCategory: String, Codable, CaseIterable {
 
 struct Session: Codable, Identifiable {
     var id = UUID()
-    let start: Date
-    let end: Date
+    var start: Date
+    var end: Date
     var interrupted = false
     var category: TrackingCategory = .work
 
     var duration: TimeInterval { max(0, end.timeIntervalSince(start)) }
     func duration(in interval: DateInterval) -> TimeInterval {
         max(0, min(end, interval.end).timeIntervalSince(max(start, interval.start)))
+    }
+}
+
+enum SessionEditError: LocalizedError {
+    case notFound
+    case invalidTime
+    case futureTime
+    case overlapsAnotherSession
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound: "This session is no longer in your history."
+        case .invalidTime: "The duration must be greater than zero."
+        case .futureTime: "A saved session can't end in the future."
+        case .overlapsAnotherSession: "This time overlaps another session. Please choose a shorter duration or a different start time."
+        }
+    }
+}
+
+enum DurationInput {
+    static func parse(_ input: String) -> TimeInterval? {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty else { return nil }
+
+        if value.hasSuffix("m"), let minutes = Int(value.dropLast()), minutes > 0 {
+            return TimeInterval(minutes) * 60
+        }
+        if value.hasSuffix("s"), let seconds = Int(value.dropLast()), seconds > 0 {
+            return TimeInterval(seconds)
+        }
+
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count <= 3, let first = Int(parts[0]), first >= 0 else { return nil }
+        switch parts.count {
+        case 1:
+            return first > 0 ? TimeInterval(first) * 60 : nil
+        case 2:
+            guard let minutes = Int(parts[1]), (0..<60).contains(minutes) else { return nil }
+            let seconds = TimeInterval(first) * 3600 + TimeInterval(minutes) * 60
+            return seconds > 0 ? seconds : nil
+        default:
+            guard let minutes = Int(parts[1]), let seconds = Int(parts[2]),
+                  (0..<60).contains(minutes), (0..<60).contains(seconds) else { return nil }
+            let total = TimeInterval(first) * 3600 + TimeInterval(minutes) * 60 + TimeInterval(seconds)
+            return total > 0 ? total : nil
+        }
     }
 }
 
@@ -38,6 +84,19 @@ struct TrackingData: Codable {
     var activeCategory: TrackingCategory?
 
     var currentCategory: TrackingCategory { activeCategory ?? .work }
+
+    mutating func editSession(id: UUID, start: Date, end: Date, category: TrackingCategory, now: Date) throws {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { throw SessionEditError.notFound }
+        guard start < end else { throw SessionEditError.invalidTime }
+        guard end <= now else { throw SessionEditError.futureTime }
+        guard !sessions.contains(where: { $0.id != id && $0.start < end && start < $0.end }),
+              !(activeStart.map { start < now && $0 < end } ?? false) else {
+            throw SessionEditError.overlapsAnotherSession
+        }
+        sessions[index].start = start
+        sessions[index].end = end
+        sessions[index].category = category
+    }
 
     mutating func start(at date: Date) {
         guard activeStart == nil else { return }

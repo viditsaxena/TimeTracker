@@ -23,6 +23,8 @@ When the timer is off, you'll see a timer icon in the menu bar. When it's runnin
 
 The window shows your Work and Music time separately. Each day has two bars, and you can look back at earlier weeks. Hover over a bar to see the exact time. You can also see each session and export your sessions as a CSV file. The CSV uses UTC for its dates and times.
 
+If you got a session wrong, click it in the list. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** and the totals and bars will update. TimeTracker won't save an edit that overlaps another session.
+
 Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops the timer. It won't start again on its own. If the app closes unexpectedly, it recovers time through its last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
 
 Your sessions stay on your Mac in `~/Library/Application Support/TimeTracker/sessions.json`. The app doesn't need an account, an internet connection, or permission to watch your keyboard. The GitHub download doesn't contain anyone's sessions. Sessions from older versions count as Work.
@@ -40,4 +42,4 @@ open build/TimeTracker.app
 
 This builds one app for both Apple Silicon and Intel Macs. To run the checks and make a ZIP with its SHA-256 checksum, run `bash package.sh`. To run just the checks, run `bash test.sh`.
 
-For now there are only two kinds of time, Work and Music. You can't add more, edit a past session, sync between Macs, or get automatic updates yet. If your Mac stays awake and you stay signed in, the timer keeps going until you stop it.
+For now there are only two kinds of time, Work and Music. You can't add more, add a missed session from scratch, sync between Macs, or get automatic updates yet. If your Mac stays awake and you stay signed in, the timer keeps going until you stop it.

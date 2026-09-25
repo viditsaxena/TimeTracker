@@ -67,6 +67,15 @@ final class Tracker: ObservableObject {
         _ = commit(next)
     }
 
+    func editSession(id: UUID, start: Date, duration: TimeInterval, category: TrackingCategory) throws {
+        now = Date()
+        var next = data
+        try next.editSession(id: id, start: start, end: start.addingTimeInterval(duration), category: category, now: now)
+        try file.save(next)
+        data = next
+        onChange?()
+    }
+
     @discardableResult
     func stop(reason: String? = nil) -> Bool {
         guard isRunning else { return true }
@@ -92,6 +101,7 @@ final class Tracker: ObservableObject {
 struct Dashboard: View {
     @ObservedObject var tracker: Tracker
     @State private var weekOffset = 0
+    @State private var editingSession: Session?
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -162,21 +172,32 @@ struct Dashboard: View {
                     Text(tracker.isRunning && weekOffset == 0 ? "Your current session will appear here when you stop." : "No sessions this week. Press ⌥ Space to begin.")
                         .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 12)
                 } else {
+                    Text("Click a session to fix its time.")
+                        .font(.caption).foregroundStyle(.secondary)
                     LazyVStack(spacing: 0) {
                         ForEach(sessions) { session in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 6) {
-                                        Circle().fill(session.category.color).frame(width: 6, height: 6)
-                                        Text(session.category.rawValue).foregroundStyle(session.category.color)
-                                        Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                                    }.font(.system(size: 12, weight: .medium))
-                                    Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
-                                        .font(.caption).foregroundStyle(.secondary)
+                            Button {
+                                editingSession = session
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        HStack(spacing: 6) {
+                                            Circle().fill(session.category.color).frame(width: 6, height: 6)
+                                            Text(session.category.rawValue).foregroundStyle(session.category.color)
+                                            Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                        }.font(.system(size: 12, weight: .medium))
+                                        Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
+                                    Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
                                 }
-                                Spacer()
-                                Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
-                            }.padding(.vertical, 9)
+                                .contentShape(Rectangle())
+                                .padding(.vertical, 9)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
                             Divider().opacity(0.5)
                         }
                     }
@@ -194,6 +215,9 @@ struct Dashboard: View {
             }.padding(26)
         }
         .frame(minWidth: 470, minHeight: 640)
+        .sheet(item: $editingSession) { session in
+            EditSessionSheet(tracker: tracker, session: session)
+        }
     }
 
     private func summary(_ title: String, interval: DateInterval) -> some View {
@@ -210,6 +234,78 @@ struct Dashboard: View {
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+struct EditSessionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var tracker: Tracker
+    let session: Session
+    @State private var start: Date
+    @State private var durationText: String
+    @State private var category: TrackingCategory
+    @State private var errorMessage: String?
+
+    init(tracker: Tracker, session: Session) {
+        self.tracker = tracker
+        self.session = session
+        _start = State(initialValue: session.start)
+        _durationText = State(initialValue: TrackingCalendar.clock(session.duration))
+        _category = State(initialValue: session.category)
+    }
+
+    private var duration: TimeInterval? { DurationInput.parse(durationText) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            Text("Edit session").font(.system(size: 20, weight: .semibold))
+            Text("Change the start time or duration, then save. Your totals will update.")
+                .font(.callout).foregroundStyle(.secondary)
+            DatePicker("Start", selection: $start, displayedComponents: [.date, .hourAndMinute])
+            HStack {
+                Text("Duration")
+                Spacer()
+                TextField("Duration", text: $durationText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 115)
+                    .accessibilityLabel("Session duration")
+            }
+            Text("Use minutes, like 45, or hours:minutes, like 1:30.")
+                .font(.caption).foregroundStyle(.secondary)
+            Picker("Category", selection: $category) {
+                ForEach(TrackingCategory.allCases, id: \.self) { choice in
+                    Text(choice.rawValue).tag(choice)
+                }
+            }
+            if let duration {
+                Text("Ends \(start.addingTimeInterval(duration).formatted(date: .abbreviated, time: .shortened))")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Text("Enter a duration greater than zero.").font(.callout).foregroundStyle(.red)
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.callout).foregroundStyle(.red)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(duration == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 430)
+    }
+
+    private func save() {
+        guard let duration else { return }
+        do {
+            try tracker.editSession(id: session.id, start: start, duration: duration, category: category)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
