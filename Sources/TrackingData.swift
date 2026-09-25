@@ -29,7 +29,7 @@ enum SessionEditError: LocalizedError {
         case .notFound: "This session is no longer in your history."
         case .invalidTime: "The duration must be greater than zero."
         case .futureTime: "A saved session can't end in the future."
-        case .overlapsAnotherSession: "This time overlaps another session. Please choose a shorter duration or a different start time."
+        case .overlapsAnotherSession: "This time overlaps another session. Choose a shorter duration or a different time."
         }
     }
 }
@@ -87,15 +87,29 @@ struct TrackingData: Codable {
 
     mutating func editSession(id: UUID, start: Date, end: Date, category: TrackingCategory, now: Date) throws {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { throw SessionEditError.notFound }
+        try validateSessionTime(start: start, end: end, excluding: id, now: now)
+        sessions[index].start = start
+        sessions[index].end = end
+        sessions[index].category = category
+    }
+
+    @discardableResult
+    mutating func addSession(endingAt end: Date, duration: TimeInterval, category: TrackingCategory, now: Date) throws -> Session {
+        guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }
+        let start = end.addingTimeInterval(-duration)
+        try validateSessionTime(start: start, end: end, excluding: nil, now: now)
+        let session = Session(start: start, end: end, category: category)
+        sessions.append(session)
+        return session
+    }
+
+    private func validateSessionTime(start: Date, end: Date, excluding id: UUID?, now: Date) throws {
         guard start < end else { throw SessionEditError.invalidTime }
         guard end <= now else { throw SessionEditError.futureTime }
         guard !sessions.contains(where: { $0.id != id && $0.start < end && start < $0.end }),
               !(activeStart.map { start < now && $0 < end } ?? false) else {
             throw SessionEditError.overlapsAnotherSession
         }
-        sessions[index].start = start
-        sessions[index].end = end
-        sessions[index].category = category
     }
 
     mutating func start(at date: Date) {

@@ -117,6 +117,47 @@ enum TrackingDataTests {
         let editedRoundTrip = try JSONDecoder().decode(TrackingData.self, from: JSONEncoder().encode(edited))
         assert(editedRoundTrip.sessions[0].start == changedStart && editedRoundTrip.sessions[0].category == .music)
 
+        var missed = TrackingData()
+        let missedDay = date("2026-09-25T08:00:00Z")
+        let missedNow = date("2026-09-25T13:00:00Z")
+        for (index, minutes) in [5, 10, 15, 20].enumerated() {
+            let session = try missed.addSession(
+                endingAt: missedDay.addingTimeInterval(TimeInterval(index * 3600 + minutes * 60)),
+                duration: TimeInterval(minutes * 60),
+                category: index == 1 ? .music : .work,
+                now: missedNow
+            )
+            assert(session.duration == TimeInterval(minutes * 60))
+        }
+        let missedInterval = calendar.dateInterval(of: .day, for: missedDay)!
+        assert(missed.sessions.count == 4)
+        assert(missed.total(in: missedInterval, now: missedNow, category: .work) == 40 * 60)
+        assert(missed.total(in: missedInterval, now: missedNow, category: .music) == 10 * 60)
+        do {
+            _ = try missed.addSession(endingAt: missedDay.addingTimeInterval(10 * 60), duration: 10 * 60, category: .work, now: missedNow)
+            fatalError("Overlapping missed time must fail")
+        } catch SessionEditError.overlapsAnotherSession { }
+        do {
+            _ = try missed.addSession(endingAt: missedNow.addingTimeInterval(60), duration: 300, category: .work, now: missedNow)
+            fatalError("Future missed time must fail")
+        } catch SessionEditError.futureTime { }
+        do {
+            _ = try missed.addSession(endingAt: missedNow, duration: 0, category: .work, now: missedNow)
+            fatalError("Zero-length missed time must fail")
+        } catch SessionEditError.invalidTime { }
+        missed.start(at: date("2026-09-25T12:00:00Z"))
+        do {
+            _ = try missed.addSession(endingAt: date("2026-09-25T12:01:00Z"), duration: 300, category: .work, now: missedNow)
+            fatalError("Missed time must not overlap a running timer")
+        } catch SessionEditError.overlapsAnotherSession { }
+        assert(missed.sessions.count == 4)
+
+        var midnight = TrackingData()
+        let midnightEnd = date("2026-09-28T00:10:00-04:00")
+        _ = try midnight.addSession(endingAt: midnightEnd, duration: 1200, category: .music, now: midnightEnd)
+        assert(midnight.total(in: sundayWeek, now: midnightEnd, category: .music) == 600)
+        assert(midnight.total(in: mondayWeek, now: midnightEnd, category: .music) == 600)
+
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("TimeTrackerTests-\(UUID())")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let file = DataFile(url: temporary.appendingPathComponent("sessions.json"))
@@ -130,6 +171,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: session edits and validation, Work defaults, category switching, separate totals, legacy migration, toggling, cross-week totals, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
+        print("Passed: missed sessions, presets, overlap checks, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
     }
 }

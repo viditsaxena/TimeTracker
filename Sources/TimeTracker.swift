@@ -9,6 +9,7 @@ final class Tracker: ObservableObject {
     @Published var now = Date()
     @Published var notice: String?
     @Published var shortcutAvailable = false
+    @Published var addMissedTimeRequest = UUID()
     private let file: DataFile
     private var timer: Timer?
     var onChange: (() -> Void)?
@@ -77,6 +78,17 @@ final class Tracker: ObservableObject {
     }
 
     @discardableResult
+    func addSession(endingAt end: Date, duration: TimeInterval, category: TrackingCategory) throws -> Session {
+        now = Date()
+        var next = data
+        let session = try next.addSession(endingAt: end, duration: duration, category: category, now: now)
+        try file.save(next)
+        data = next
+        onChange?()
+        return session
+    }
+
+    @discardableResult
     func stop(reason: String? = nil) -> Bool {
         guard isRunning else { return true }
         now = Date()
@@ -102,6 +114,7 @@ struct Dashboard: View {
     @ObservedObject var tracker: Tracker
     @State private var weekOffset = 0
     @State private var editingSession: Session?
+    @State private var showingAddMissedTime = false
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -166,6 +179,7 @@ struct Dashboard: View {
                     Text("Sessions").font(.headline)
                     Text("\(sessions.count)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
+                    Button("Add missed time…") { showingAddMissedTime = true }.buttonStyle(.link)
                     Button("Export CSV…", action: tracker.export).buttonStyle(.link)
                 }
                 if sessions.isEmpty {
@@ -218,6 +232,19 @@ struct Dashboard: View {
         .sheet(item: $editingSession) { session in
             EditSessionSheet(tracker: tracker, session: session)
         }
+        .sheet(isPresented: $showingAddMissedTime) {
+            AddMissedSessionSheet(
+                tracker: tracker,
+                initialEnd: min(calendar.date(byAdding: .weekOfYear, value: weekOffset, to: tracker.now) ?? tracker.now, tracker.data.activeStart ?? tracker.now)
+            ) { end in
+                let currentWeek = TrackingCalendar.week(containing: tracker.now).start
+                let addedWeek = TrackingCalendar.week(containing: end.addingTimeInterval(-1)).start
+                weekOffset = (calendar.dateComponents([.day], from: currentWeek, to: addedWeek).day ?? 0) / 7
+            }
+        }
+        .onChange(of: tracker.addMissedTimeRequest) { _, _ in
+            showingAddMissedTime = true
+        }
     }
 
     private func summary(_ title: String, interval: DateInterval) -> some View {
@@ -234,6 +261,71 @@ struct Dashboard: View {
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+struct AddMissedSessionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var tracker: Tracker
+    let onAdded: (Date) -> Void
+    @State private var endedAt: Date
+    @State private var category: TrackingCategory = .work
+    @State private var customDuration = ""
+    @State private var errorMessage: String?
+
+    init(tracker: Tracker, initialEnd: Date, onAdded: @escaping (Date) -> Void) {
+        self.tracker = tracker
+        self.onAdded = onAdded
+        _endedAt = State(initialValue: initialEnd)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            Text("Add missed time").font(.system(size: 20, weight: .semibold))
+            Text("Choose when you finished, then click how long it took.")
+                .font(.callout).foregroundStyle(.secondary)
+            DatePicker("Ended", selection: $endedAt, displayedComponents: [.date, .hourAndMinute])
+            Picker("Category", selection: $category) {
+                ForEach(TrackingCategory.allCases, id: \.self) { choice in
+                    Text(choice.rawValue).tag(choice)
+                }
+            }
+            HStack(spacing: 8) {
+                ForEach([5, 10, 15, 20], id: \.self) { minutes in
+                    Button("\(minutes) min") { add(TimeInterval(minutes * 60)) }
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            HStack {
+                TextField("Other duration", text: $customDuration)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Other duration in minutes or hours and minutes")
+                Button("Add") {
+                    if let duration = DurationInput.parse(customDuration) { add(duration) }
+                }.disabled(DurationInput.parse(customDuration) == nil)
+            }
+            Text("For a longer session, type minutes like 45, or hours:minutes like 1:30.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let errorMessage {
+                Text(errorMessage).font(.callout).foregroundStyle(.red)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 430)
+    }
+
+    private func add(_ duration: TimeInterval) {
+        do {
+            _ = try tracker.addSession(endingAt: endedAt, duration: duration, category: category)
+            onAdded(endedAt)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -410,6 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         totalsItem.isEnabled = false
         menu.addItem(.separator())
         menu.addItem(withTitle: "Show TimeTracker", action: #selector(showWindow), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Add missed time…", action: #selector(addMissedTime), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Export CSV…", action: #selector(export), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit TimeTracker", action: #selector(quit), keyEquivalent: "q").target = self
@@ -467,6 +560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc func toggle() { tracker.toggle() }
     @objc func showWindow() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    @objc func addMissedTime() { showWindow(); tracker.addMissedTimeRequest = UUID() }
     @objc func export() { showWindow(); tracker.export() }
     @objc func quit() { NSApp.terminate(nil) }
     @objc func willSleep() { tracker.stop(reason: "Timer stopped when your Mac went to sleep or switched users. Start again when you’re ready.") }
