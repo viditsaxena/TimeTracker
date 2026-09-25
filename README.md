@@ -1,53 +1,43 @@
 # TimeTracker
 
-A small native macOS menu-bar app for keeping Work and Music time separate. Press **Option–Space** anywhere to start or stop a session.
+I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. That's what TimeTracker does.
 
-## Download
+Press **Option–Space** to start or stop the timer, even when you're in another app. Every new timer starts as **Work**. If you're doing music, click the timer in the menu bar and choose **Music**. You don't have to stop the timer first. TimeTracker saves the work part and starts a music part right away. The next time you start a timer, it goes back to Work.
 
-[**Download TimeTracker for Mac**](https://github.com/viditsaxena/TimeTracker/releases/latest/download/TimeTracker-v1.0.0-macOS-universal.zip) · [All releases](https://github.com/viditsaxena/TimeTracker/releases)
+## Get it on your Mac
 
-Requires **macOS 14 Sonoma or later**. The app includes Apple Silicon and Intel binaries. It has been tested on Apple Silicon; the Intel build has not been tested on Intel hardware.
+[Download the latest version](https://github.com/viditsaxena/TimeTracker/releases/latest). Choose the **TimeTracker ZIP** under Assets. The source code ZIPs are for people who want to build the app themselves.
 
-1. Download the ZIP, unzip it, and drag **TimeTracker.app** into **Applications**.
-2. Open TimeTracker. This release is not Apple Developer ID signed or notarized, so macOS may block the first launch. If you trust the download, try opening it once, then use **System Settings → Privacy & Security → Open Anyway**. [Apple’s instructions](https://support.apple.com/en-us/102445).
-3. Press **Option–Space** to start or stop. If Spotlight or another app uses that shortcut, disable its assignment first. For Spotlight: **System Settings → Keyboard → Keyboard Shortcuts → Spotlight**.
+You need **macOS 14 or newer**. The download includes versions for Apple Silicon and Intel Macs. I've tested it on Apple Silicon, but not on an Intel Mac yet.
 
-Click the menu-bar timer to choose Work/Music or **Show TimeTracker**. Closing the dashboard keeps the app and shortcut running. To open the app automatically when you log in, add it in **System Settings → General → Login Items & Extensions**. Quit the app before installing an update; replacing the app preserves your saved sessions.
+1. Unzip the download and move **TimeTracker.app** to **Applications**.
+2. Open it and press **Option–Space** when you want to start or stop tracking.
 
-## Features
+Apple hasn't verified this app, so your Mac may stop you the first time you open it. If you trust the download, try opening it once, then go to **System Settings → Privacy & Security → Open Anyway**. [Apple explains this here](https://support.apple.com/en-us/102445). A work or school Mac may not let you make that choice.
 
-- Every new timer starts as **Work**. While tracking, click the menu-bar timer and choose **Music** (or Work) to switch. Switching saves the current portion and immediately continues in the chosen category. Stopping and starting again always resets to Work.
-- While tracking, the menu bar shows elapsed time with a briefcase for Work or a music note for Music. When paused it shows only a timer icon, with no time displayed.
-- Separate Work and Music daily/weekly totals, two bars per day, and category labels in session history. Hover a bar for its exact duration. Older sessions count as Work.
-- Browse previous weeks and export all completed sessions as CSV (UTC timestamps and a category column).
-- Sessions crossing midnight or week boundaries are allocated to the correct days and weeks.
-- Timer stops on system sleep, user switching, and normal app quit. It does not automatically resume.
-- Active time is checkpointed every 30 seconds. After an unexpected exit, recovery stops at the last checkpoint so downtime is not counted.
-- Data stays in `~/Library/Application Support/TimeTracker/sessions.json`. No account or network access needed.
+If Option–Space opens Spotlight instead, turn that shortcut off in **System Settings → Keyboard → Keyboard Shortcuts → Spotlight**. If some other app uses the keys, you'll need to change its shortcut. You can always use the button in TimeTracker instead.
 
-The global shortcut uses the macOS hot-key API; no Accessibility or Input Monitoring permission is required. If another app has claimed the shortcut, use the on-screen or menu-bar button. No personal session data is included in the repository or release download.
+## What you'll see
 
-## Build and run
+When the timer is off, you'll see a timer icon in the menu bar. When it's running, you'll see the time next to a briefcase for Work or a music note for Music. Click there to switch between them or open the TimeTracker window.
 
-With Apple's Command Line Tools installed:
+The window shows your Work and Music time separately. Each day has two bars, and you can look back at earlier weeks. Hover over a bar to see the exact time. You can also see each session and export your sessions as a CSV file. The CSV uses UTC for its dates and times.
+
+Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops the timer. It won't start again on its own. If the app closes unexpectedly, it recovers time through its last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
+
+Your sessions stay on your Mac in `~/Library/Application Support/TimeTracker/sessions.json`. The app doesn't need an account, an internet connection, or permission to watch your keyboard. The GitHub download doesn't contain anyone's sessions. Sessions from older versions count as Work.
+
+To have TimeTracker open when you log in, add it in **System Settings → General → Login Items & Extensions**. When you install a new version, quit the old one first. Replacing the app won't remove your saved sessions.
+
+## Build it yourself
+
+Install Apple's Command Line Tools, then run:
 
 ```sh
 bash build.sh
 open build/TimeTracker.app
 ```
 
-For everyday use, copy the built app into your Applications folder and open it there. To start it automatically, add TimeTracker in System Settings → General → Login Items & Extensions.
+This builds one app for both Apple Silicon and Intel Macs. To run the checks and make a ZIP with its SHA-256 checksum, run `bash package.sh`. To run just the checks, run `bash test.sh`.
 
-The build produces a universal app for Apple Silicon and Intel. To run tests and build the release ZIP and checksums:
-
-```sh
-bash package.sh
-```
-
-## Verify
-
-```sh
-bash test.sh
-```
-
-This MVP tracks Work and Music. It does not yet include custom projects, manual session edits, idle detection, or syncing. If your Mac remains awake, the timer continues until you stop it.
+For now there are only two kinds of time, Work and Music. You can't add more, edit a past session, sync between Macs, or get automatic updates yet. If your Mac stays awake and you stay signed in, the timer keeps going until you stop it.
