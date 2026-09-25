@@ -23,7 +23,7 @@ When the timer is off, you'll see a timer icon in the menu bar. When it's runnin
 
 The window shows your Work and Music time separately. Each day has two bars, and you can look back at earlier weeks. Hover over a bar to see the exact time. You can also see each session and export your sessions as a CSV file. The CSV uses UTC for its dates and times.
 
-If you forgot to track a few minutes, find the session and click **+5m**, **+10m**, **+15m**, or **+20m** right there. The time is added to that session in one click. The totals and bars update too. You can click again to add more. If that would run into another session, TimeTracker will tell you on the same row.
+If you forgot to track a few minutes, find the session. Use **−** and **+** to choose how many minutes to add, then click **Add**. It starts at 5 minutes and changes in 5-minute steps. The time goes onto that session, and the totals and bars update too. If that would run into another session, TimeTracker will tell you on the same row.
 
 If you got more than the duration wrong, click the session itself. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** when you're done. TimeTracker won't save an edit that overlaps another session.
 

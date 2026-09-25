@@ -125,6 +125,7 @@ struct Dashboard: View {
     @State private var editingSession: Session?
     @State private var showingAddMissedTime = false
     @State private var quickAddError: (id: UUID, message: String)?
+    @State private var minutesBySession: [UUID: Int] = [:]
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -224,13 +225,26 @@ struct Dashboard: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
                                 HStack(spacing: 7) {
-                                    Text("Add").font(.caption).foregroundStyle(.secondary)
-                                    ForEach([5, 10, 15, 20], id: \.self) { minutes in
-                                        Button("+\(minutes)m") { extend(session, by: minutes) }
-                                            .buttonStyle(.bordered)
-                                            .controlSize(.small)
-                                            .accessibilityLabel("Add \(minutes) minutes to this \(session.category.rawValue) session")
+                                    let minutes = minutesBySession[session.id] ?? 5
+                                    Button { minutesBySession[session.id] = minutes - 5 } label: {
+                                        Image(systemName: "minus").frame(width: 18)
                                     }
+                                    .buttonStyle(.bordered).controlSize(.small)
+                                    .disabled(minutes <= 5)
+                                    .accessibilityLabel("Decrease minutes to add to this \(session.category.rawValue) session")
+                                    Text("\(minutes) min")
+                                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                                        .monospacedDigit()
+                                        .frame(width: 48)
+                                        .accessibilityLabel("\(minutes) minutes to add")
+                                    Button { minutesBySession[session.id] = minutes + 5 } label: {
+                                        Image(systemName: "plus").frame(width: 18)
+                                    }
+                                    .buttonStyle(.bordered).controlSize(.small)
+                                    .accessibilityLabel("Increase minutes to add to this \(session.category.rawValue) session")
+                                    Button("Add") { extend(session, by: minutes) }
+                                        .buttonStyle(.borderedProminent).tint(.indigo).controlSize(.small)
+                                        .accessibilityLabel("Add \(minutes) minutes to this \(session.category.rawValue) session")
                                     Spacer(minLength: 0)
                                 }
                                 if quickAddError?.id == session.id, let message = quickAddError?.message {
@@ -278,7 +292,7 @@ struct Dashboard: View {
             try tracker.extendSession(id: session.id, by: minutes)
             quickAddError = nil
         } catch SessionEditError.overlapsAnotherSession {
-            quickAddError = (session.id, "That would overlap the next session. Click the session to edit its time.")
+            quickAddError = (session.id, "That would overlap another session or the running timer. Click the session to edit its time.")
         } catch SessionEditError.futureTime {
             quickAddError = (session.id, "That would put the end in the future. Try again later or edit the session.")
         } catch {
