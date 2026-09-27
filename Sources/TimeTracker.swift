@@ -77,13 +77,15 @@ final class Tracker: ObservableObject {
         onChange?()
     }
 
-    func extendSession(id: UUID, by minutes: Int) throws {
+    @discardableResult
+    func addTimeToday(minutes: Int, category: TrackingCategory) throws -> QuickAddResult {
         now = Date()
         var next = data
-        try next.extendSession(id: id, by: TimeInterval(minutes * 60), now: now)
+        let result = try next.addTimeToday(duration: TimeInterval(minutes * 60), category: category, now: now, calendar: TrackingCalendar.local)
         try file.save(next)
         data = next
         onChange?()
+        return result
     }
 
     @discardableResult
@@ -124,8 +126,10 @@ struct Dashboard: View {
     @State private var weekOffset = 0
     @State private var editingSession: Session?
     @State private var showingAddMissedTime = false
-    @State private var quickAddError: (id: UUID, message: String)?
-    @State private var minutesBySession: [UUID: Int] = [:]
+    @State private var quickMinutes = 5
+    @State private var quickCategory: TrackingCategory = .work
+    @State private var quickMessage: String?
+    @State private var quickAddFailed = false
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -160,11 +164,63 @@ struct Dashboard: View {
                             .font(.system(size: 14, weight: .semibold)).frame(width: 190).padding(.vertical, 6)
                     }
                     .buttonStyle(.borderedProminent).tint(tracker.isRunning ? .orange : .indigo).controlSize(.large)
-                    Text(tracker.shortcutAvailable ? "⌥ Space  ·  works in any app" : "Global shortcut unavailable · use the button")
+                    Text(tracker.shortcutAvailable ? "⌥ T  ·  works in any app" : "Global shortcut unavailable · use the button")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 23)
                 .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Add missed time").font(.headline)
+                        Spacer()
+                        if tracker.isRunning {
+                            Text("Current \(tracker.data.currentCategory.rawValue) timer")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Picker("Category", selection: $quickCategory) {
+                                ForEach(TrackingCategory.allCases, id: \.self) { category in
+                                    Text(category.rawValue).tag(category)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        Button { quickMinutes -= 5 } label: { Image(systemName: "minus").frame(width: 18) }
+                            .buttonStyle(.bordered).controlSize(.small)
+                            .disabled(quickMinutes <= 5)
+                            .accessibilityLabel("Decrease minutes to add")
+                        Text("\(quickMinutes) min")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .frame(width: 60)
+                            .accessibilityLabel("\(quickMinutes) minutes to add")
+                        Button { quickMinutes += 5 } label: { Image(systemName: "plus").frame(width: 18) }
+                            .buttonStyle(.bordered).controlSize(.small)
+                            .disabled(quickMinutes >= 24 * 60)
+                            .accessibilityLabel("Increase minutes to add")
+                        Button("Add") { quickAdd() }
+                            .buttonStyle(.borderedProminent).tint(.indigo).controlSize(.small)
+                            .accessibilityLabel("Add \(quickMinutes) minutes today")
+                        Spacer(minLength: 0)
+                    }
+                    if let quickMessage {
+                        Text(quickMessage).font(.caption)
+                            .foregroundStyle(quickAddFailed ? Color.red : Color.secondary)
+                        if quickAddFailed {
+                            Button("Choose an exact time…") { showingAddMissedTime = true }
+                                .font(.caption).buttonStyle(.link)
+                        }
+                    } else {
+                        Text("Uses the latest open time today.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
 
                 HStack(spacing: 12) {
                     summary("Today", interval: calendar.dateInterval(of: .day, for: tracker.now)!)
@@ -190,68 +246,39 @@ struct Dashboard: View {
                     Text("Sessions").font(.headline)
                     Text("\(sessions.count)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Add missed time…") { showingAddMissedTime = true }.buttonStyle(.link)
+                    Button("Choose exact time…") { showingAddMissedTime = true }.buttonStyle(.link)
                     Button("Export CSV…", action: tracker.export).buttonStyle(.link)
                 }
                 if sessions.isEmpty {
-                    Text(tracker.isRunning && weekOffset == 0 ? "Your current session will appear here when you stop." : "No sessions this week. Press ⌥ Space to begin.")
+                    Text(tracker.isRunning && weekOffset == 0 ? "Your current session will appear here when you stop." : "No sessions this week. Press ⌥ T to begin.")
                         .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 12)
                 } else {
-                    Text("Add time to a session below, or click it to edit.")
+                    Text("Click a session to fix its time.")
                         .font(.caption).foregroundStyle(.secondary)
                     LazyVStack(spacing: 0) {
                         ForEach(sessions) { session in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Button {
-                                    quickAddError = nil
-                                    editingSession = session
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            HStack(spacing: 6) {
-                                                Circle().fill(session.category.color).frame(width: 6, height: 6)
-                                                Text(session.category.rawValue).foregroundStyle(session.category.color)
-                                                Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                                            }.font(.system(size: 12, weight: .medium))
-                                            Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
-                                                .font(.caption).foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
-                                        Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
+                            Button {
+                                editingSession = session
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        HStack(spacing: 6) {
+                                            Circle().fill(session.category.color).frame(width: 6, height: 6)
+                                            Text(session.category.rawValue).foregroundStyle(session.category.color)
+                                            Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                        }.font(.system(size: 12, weight: .medium))
+                                        Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
+                                            .font(.caption).foregroundStyle(.secondary)
                                     }
-                                    .contentShape(Rectangle())
+                                    Spacer()
+                                    Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
+                                    Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
-                                HStack(spacing: 7) {
-                                    let minutes = minutesBySession[session.id] ?? 5
-                                    Button { minutesBySession[session.id] = minutes - 5 } label: {
-                                        Image(systemName: "minus").frame(width: 18)
-                                    }
-                                    .buttonStyle(.bordered).controlSize(.small)
-                                    .disabled(minutes <= 5)
-                                    .accessibilityLabel("Decrease minutes to add to this \(session.category.rawValue) session")
-                                    Text("\(minutes) min")
-                                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                                        .monospacedDigit()
-                                        .frame(width: 48)
-                                        .accessibilityLabel("\(minutes) minutes to add")
-                                    Button { minutesBySession[session.id] = minutes + 5 } label: {
-                                        Image(systemName: "plus").frame(width: 18)
-                                    }
-                                    .buttonStyle(.bordered).controlSize(.small)
-                                    .accessibilityLabel("Increase minutes to add to this \(session.category.rawValue) session")
-                                    Button("Add") { extend(session, by: minutes) }
-                                        .buttonStyle(.borderedProminent).tint(.indigo).controlSize(.small)
-                                        .accessibilityLabel("Add \(minutes) minutes to this \(session.category.rawValue) session")
-                                    Spacer(minLength: 0)
-                                }
-                                if quickAddError?.id == session.id, let message = quickAddError?.message {
-                                    Text(message).font(.caption).foregroundStyle(.red)
-                                }
+                                .contentShape(Rectangle())
+                                .padding(.vertical, 9)
                             }
-                            .padding(.vertical, 9)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
                             Divider().opacity(0.5)
                         }
                     }
@@ -287,16 +314,20 @@ struct Dashboard: View {
         }
     }
 
-    private func extend(_ session: Session, by minutes: Int) {
+    private func quickAdd() {
         do {
-            try tracker.extendSession(id: session.id, by: minutes)
-            quickAddError = nil
-        } catch SessionEditError.overlapsAnotherSession {
-            quickAddError = (session.id, "That would overlap another session or the running timer. Click the session to edit its time.")
-        } catch SessionEditError.futureTime {
-            quickAddError = (session.id, "That would put the end in the future. Try again later or edit the session.")
+            let result = try tracker.addTimeToday(minutes: quickMinutes, category: quickCategory)
+            weekOffset = 0
+            quickAddFailed = false
+            switch result {
+            case .extendedRunningSession:
+                quickMessage = "Added \(quickMinutes) minutes to the current \(tracker.data.currentCategory.rawValue) timer."
+            case .addedSession(let session):
+                quickMessage = "Added \(quickMinutes) minutes of \(session.category.rawValue), \(session.start.formatted(date: .omitted, time: .shortened))–\(session.end.formatted(date: .omitted, time: .shortened))."
+            }
         } catch {
-            quickAddError = (session.id, error.localizedDescription)
+            quickAddFailed = true
+            quickMessage = error.localizedDescription
         }
     }
 
@@ -539,7 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        toggleItem = menu.addItem(withTitle: "Start tracking    ⌥Space", action: #selector(toggle), keyEquivalent: "")
+        toggleItem = menu.addItem(withTitle: "Start tracking    ⌥T", action: #selector(toggle), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(.separator())
         let categoryHint = menu.addItem(withTitle: "New timers start as Work", action: nil, keyEquivalent: "")
@@ -555,7 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         totalsItem.isEnabled = false
         menu.addItem(.separator())
         menu.addItem(withTitle: "Show TimeTracker", action: #selector(showWindow), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Add missed time…", action: #selector(addMissedTime), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Choose exact time…", action: #selector(addMissedTime), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Export CSV…", action: #selector(export), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit TimeTracker", action: #selector(quit), keyEquivalent: "q").target = self
@@ -585,9 +616,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return noErr
         }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
         guard installed == noErr else { return }
-        let result = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), EventHotKeyID(signature: 0x54494D45, id: 1), GetApplicationEventTarget(), 0, &hotKey)
+        let result = RegisterEventHotKey(UInt32(kVK_ANSI_T), UInt32(optionKey), EventHotKeyID(signature: 0x54494D45, id: 1), GetApplicationEventTarget(), 0, &hotKey)
         tracker.shortcutAvailable = result == noErr
-        if result != noErr { tracker.notice = "Option–Space is already in use. You can still start and stop from this window or the menu bar." }
+        if result != noErr { tracker.notice = "Option–T is already in use. You can still start and stop from this window or the menu bar." }
     }
 
     private func updateMenu() {
@@ -596,14 +627,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : NSImage(systemSymbolName: "timer", accessibilityDescription: "TimeTracker paused")
         statusItem.button?.title = tracker.isRunning ? " " + TrackingCalendar.clock(tracker.elapsed) : ""
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        toggleItem.title = "\(tracker.isRunning ? "Stop" : "Start") tracking    ⌥Space"
+        toggleItem.title = "\(tracker.isRunning ? "Stop" : "Start") tracking    ⌥T"
         for (category, item) in categoryItems {
             item.state = tracker.data.currentCategory == category ? .on : .off
             item.isEnabled = tracker.isRunning
         }
         let day = TrackingCalendar.local.dateInterval(of: .day, for: tracker.now)!
         totalsItem.title = "Today: Work \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .work))) · Music \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .music)))"
-        statusItem.button?.toolTip = "TimeTracker · \(tracker.isRunning ? tracker.data.currentCategory.rawValue : "Paused") · Option–Space"
+        statusItem.button?.toolTip = "TimeTracker · \(tracker.isRunning ? tracker.data.currentCategory.rawValue : "Paused") · Option–T"
     }
 
     func menuWillOpen(_ menu: NSMenu) { updateMenu() }

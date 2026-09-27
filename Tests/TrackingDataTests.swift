@@ -168,6 +168,55 @@ enum TrackingDataTests {
         }
         let missedInterval = calendar.dateInterval(of: .day, for: missedDay)!
         assert(missed.sessions.count == 4)
+
+        let quickNow = date("2026-09-27T12:00:00-04:00")
+        let quickDay = calendar.dateInterval(of: .day, for: quickNow)!
+        var quick = TrackingData(sessions: [
+            Session(start: date("2026-09-27T09:00:00-04:00"), end: date("2026-09-27T09:30:00-04:00"), category: .work),
+            Session(start: date("2026-09-27T11:50:00-04:00"), end: date("2026-09-27T11:58:00-04:00"), category: .music)
+        ])
+        let firstQuick = try quick.addTimeToday(duration: 300, category: .work, now: quickNow, calendar: calendar)
+        guard case .addedSession(let firstQuickSession) = firstQuick else { fatalError("Stopped timer should create a new session") }
+        assert(firstQuickSession.start == date("2026-09-27T11:45:00-04:00"))
+        assert(firstQuickSession.end == date("2026-09-27T11:50:00-04:00"))
+        assert(firstQuickSession.category == .work && quick.sessions.count == 3)
+        let secondQuick = try quick.addTimeToday(duration: 600, category: .music, now: quickNow, calendar: calendar)
+        guard case .addedSession(let secondQuickSession) = secondQuick else { fatalError("Stopped timer should create a new session") }
+        assert(secondQuickSession.start == date("2026-09-27T11:35:00-04:00"))
+        assert(secondQuickSession.end == firstQuickSession.start && secondQuickSession.category == .music)
+        assert(quick.total(in: quickDay, now: quickNow, category: .work) == 35 * 60)
+        assert(quick.total(in: quickDay, now: quickNow, category: .music) == 18 * 60)
+
+        var runningQuick = TrackingData(sessions: [
+            Session(start: date("2026-09-27T10:00:00-04:00"), end: date("2026-09-27T10:50:00-04:00"), category: .work)
+        ], activeStart: date("2026-09-27T11:00:00-04:00"), checkpoint: quickNow, activeCategory: .music)
+        let extendedRunning = try runningQuick.addTimeToday(duration: 300, category: .work, now: quickNow, calendar: calendar)
+        guard case .extendedRunningSession = extendedRunning else { fatalError("A running timer should absorb adjacent free time") }
+        assert(runningQuick.activeStart == date("2026-09-27T10:55:00-04:00"))
+        assert(runningQuick.sessions.count == 1 && runningQuick.currentCategory == .music)
+        let fallbackQuick = try runningQuick.addTimeToday(duration: 600, category: .work, now: quickNow, calendar: calendar)
+        guard case .addedSession(let fallbackSession) = fallbackQuick else { fatalError("A non-adjacent gap should get a new session") }
+        assert(fallbackSession.start == date("2026-09-27T09:50:00-04:00"))
+        assert(fallbackSession.end == date("2026-09-27T10:00:00-04:00"))
+        assert(fallbackSession.category == .music && runningQuick.activeStart == date("2026-09-27T10:55:00-04:00"))
+
+        var fullToday = TrackingData(sessions: [Session(start: quickDay.start, end: quickNow, category: .work)])
+        do {
+            _ = try fullToday.addTimeToday(duration: 300, category: .music, now: quickNow, calendar: calendar)
+            fatalError("Quick add must not double-count a full day")
+        } catch SessionEditError.noFreeTimeToday { }
+        assert(fullToday.sessions.count == 1)
+        let justAfterMidnight = date("2026-09-27T00:03:00-04:00")
+        var earlyToday = TrackingData()
+        do {
+            _ = try earlyToday.addTimeToday(duration: 300, category: .work, now: justAfterMidnight, calendar: calendar)
+            fatalError("Quick add must not borrow time from yesterday")
+        } catch SessionEditError.noFreeTimeToday { }
+        assert(earlyToday.sessions.isEmpty)
+        do {
+            _ = try earlyToday.addTimeToday(duration: 0, category: .work, now: quickNow, calendar: calendar)
+            fatalError("Quick add needs a positive duration")
+        } catch SessionEditError.invalidTime { }
         assert(missed.total(in: missedInterval, now: missedNow, category: .work) == 40 * 60)
         assert(missed.total(in: missedInterval, now: missedNow, category: .music) == 10 * 60)
         do {
@@ -208,6 +257,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: one-click session extensions, missed sessions, presets, overlap checks, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
+        print("Passed: latest-gap quick add, running-timer quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
     }
 }

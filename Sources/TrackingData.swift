@@ -23,6 +23,7 @@ enum SessionEditError: LocalizedError {
     case invalidTime
     case futureTime
     case overlapsAnotherSession
+    case noFreeTimeToday
 
     var errorDescription: String? {
         switch self {
@@ -30,8 +31,14 @@ enum SessionEditError: LocalizedError {
         case .invalidTime: "The duration must be greater than zero."
         case .futureTime: "A saved session can't end in the future."
         case .overlapsAnotherSession: "This time overlaps another session. Choose a shorter duration or a different time."
+        case .noFreeTimeToday: "There isn't an open block that long today. Try fewer minutes or choose an exact time."
         }
     }
+}
+
+enum QuickAddResult {
+    case extendedRunningSession
+    case addedSession(Session)
 }
 
 enum DurationInput {
@@ -97,6 +104,46 @@ struct TrackingData: Codable {
         guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }
         guard let session = sessions.first(where: { $0.id == id }) else { throw SessionEditError.notFound }
         try editSession(id: id, start: session.start, end: session.end.addingTimeInterval(duration), category: session.category, now: now)
+    }
+
+    @discardableResult
+    mutating func addTimeToday(duration: TimeInterval, category: TrackingCategory, now: Date, calendar: Calendar) throws -> QuickAddResult {
+        guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }
+        let dayStart = calendar.startOfDay(for: now)
+
+        // A running timer can absorb missed time directly before it began.
+        if let activeStart {
+            let earlierStart = activeStart.addingTimeInterval(-duration)
+            if earlierStart >= dayStart,
+               !sessions.contains(where: { $0.start < activeStart && earlierStart < $0.end }) {
+                self.activeStart = earlierStart
+                return .extendedRunningSession
+            }
+        }
+
+        // Otherwise use the latest free block today. Never move or overlap recorded time.
+        var occupied = sessions.compactMap { session -> DateInterval? in
+            guard session.start < now, session.end > dayStart else { return nil }
+            return DateInterval(start: max(session.start, dayStart), end: min(session.end, now))
+        }
+        if let activeStart {
+            occupied.append(DateInterval(start: max(activeStart, dayStart), end: now))
+        }
+        occupied.sort { $0.start > $1.start }
+
+        var gapEnd = now
+        for block in occupied {
+            if gapEnd.timeIntervalSince(block.end) >= duration {
+                let session = try addSession(endingAt: gapEnd, duration: duration, category: activeStart == nil ? category : currentCategory, now: now)
+                return .addedSession(session)
+            }
+            gapEnd = min(gapEnd, block.start)
+        }
+        if gapEnd.timeIntervalSince(dayStart) >= duration {
+            let session = try addSession(endingAt: gapEnd, duration: duration, category: activeStart == nil ? category : currentCategory, now: now)
+            return .addedSession(session)
+        }
+        throw SessionEditError.noFreeTimeToday
     }
 
     @discardableResult

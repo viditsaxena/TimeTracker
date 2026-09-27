@@ -2,7 +2,7 @@
 
 I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. That's what TimeTracker does.
 
-Press **Option–Space** to start or stop the timer, even when you're in another app. Every new timer starts as **Work**. If you're doing music, click the timer in the menu bar and choose **Music**. You don't have to stop the timer first. TimeTracker saves the work part and starts a music part right away. The next time you start a timer, it goes back to Work.
+Press **Option–T** to start or stop the timer, even when you're in another app. Every new timer starts as **Work**. If you're doing music, click the timer in the menu bar and choose **Music**. You don't have to stop the timer first. TimeTracker saves the work part and starts a music part right away. The next time you start a timer, it goes back to Work.
 
 ## Get it on your Mac
 
@@ -11,11 +11,11 @@ Press **Option–Space** to start or stop the timer, even when you're in another
 You need **macOS 14 or newer**. The download includes versions for Apple Silicon and Intel Macs. I've tested it on Apple Silicon, but not on an Intel Mac yet.
 
 1. Unzip the download and move **TimeTracker.app** to **Applications**.
-2. Open it and press **Option–Space** when you want to start or stop tracking.
+2. Open it and press **Option–T** when you want to start or stop tracking.
 
 Apple hasn't verified this app, so your Mac may stop you the first time you open it. If you trust the download, try opening it once, then go to **System Settings → Privacy & Security → Open Anyway**. [Apple explains this here](https://support.apple.com/en-us/102445). A work or school Mac may not let you make that choice.
 
-If Option–Space opens Spotlight instead, turn that shortcut off in **System Settings → Keyboard → Keyboard Shortcuts → Spotlight**. If some other app uses the keys, you'll need to change its shortcut. You can always use the button in TimeTracker instead.
+If another app already uses Option–T, you'll need to change that shortcut. You can always use the button in TimeTracker instead. TimeTracker no longer uses Option–Space, so you can turn Spotlight's old shortcut back on if you want.
 
 ## What you'll see
 
@@ -23,11 +23,11 @@ When the timer is off, you'll see a timer icon in the menu bar. When it's runnin
 
 The window shows your Work and Music time separately. Each day has two bars, and you can look back at earlier weeks. Hover over a bar to see the exact time. You can also see each session and export your sessions as a CSV file. The CSV uses UTC for its dates and times.
 
-If you forgot to track a few minutes, find the session. Use **−** and **+** to choose how many minutes to add, then click **Add**. It starts at 5 minutes and changes in 5-minute steps. The time goes onto that session, and the totals and bars update too. If that would run into another session, TimeTracker will tell you on the same row.
+If you forgot to track a few minutes, use **− 5 min + Add** near the top of the window. The number starts at 5 and changes in 5-minute steps. Click **Add**, and TimeTracker puts those minutes in the latest open space today. It won't put them on top of time you've already tracked. If a timer is running, it first tries to add the minutes immediately before that timer started. The message below the button tells you where the time went. Work is the default; you can pick Music when the timer is off. If there isn't a long enough gap today, it will tell you.
 
 If you got more than the duration wrong, click the session itself. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** when you're done. TimeTracker won't save an edit that overlaps another session.
 
-If there's no session to add to, click **Add missed time** in the window or menu bar. Pick when you finished and whether it was Work or Music, then click **5 min**, **10 min**, **15 min**, or **20 min**. That click saves a new session. You can also type a different duration and click **Add**. TimeTracker puts the new block before the end time you chose and won't add it on top of another session.
+If the missed time happened at a particular time, click **Choose exact time** in the window or menu bar. Pick when you finished and whether it was Work or Music, then click **5 min**, **10 min**, **15 min**, or **20 min**. That click saves a new session. You can also type a different duration and click **Add**. TimeTracker puts the new block before the end time you chose and won't add it on top of another session.
 
 Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops the timer. It won't start again on its own. If the app closes unexpectedly, it recovers time through its last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
 
