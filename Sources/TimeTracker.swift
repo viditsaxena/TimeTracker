@@ -13,6 +13,8 @@ final class Tracker: ObservableObject {
     private let file: DataFile
     private var timer: Timer?
     var onChange: (() -> Void)?
+    var onStarted: ((Date) -> Void)?
+    var onStopped: (() -> Void)?
 
     var isRunning: Bool { data.activeStart != nil }
     var elapsed: TimeInterval { data.activeStart.map { max(0, now.timeIntervalSince($0)) } ?? 0 }
@@ -55,8 +57,19 @@ final class Tracker: ObservableObject {
 
     func toggle() {
         now = Date()
+        let wasRunning = isRunning
         var next = data
-        if isRunning { next.stop(at: now) } else { next.start(at: now) }
+        if wasRunning { next.stop(at: now) } else { next.start(at: now) }
+        if commit(next) {
+            if wasRunning { onStopped?() }
+            else if let start = next.activeStart { onStarted?(start) }
+        }
+    }
+
+    func chooseStartingCategory(_ category: TrackingCategory, for start: Date) {
+        guard data.activeStart == start, data.currentCategory != category else { return }
+        var next = data
+        next.chooseCategoryForActiveSession(category)
         _ = commit(next)
     }
 
@@ -75,6 +88,16 @@ final class Tracker: ObservableObject {
         try file.save(next)
         data = next
         onChange?()
+    }
+
+    @discardableResult
+    func deleteSession(id: UUID) throws -> Session {
+        var next = data
+        let deleted = try next.deleteSession(id: id)
+        try file.save(next)
+        data = next
+        onChange?()
+        return deleted
     }
 
     @discardableResult
@@ -106,6 +129,7 @@ final class Tracker: ObservableObject {
         var next = data
         next.stop(at: now)
         let success = commit(next)
+        if success { onStopped?() }
         if success, let reason { notice = reason }
         return success
     }
@@ -130,6 +154,8 @@ struct Dashboard: View {
     @State private var quickCategory: TrackingCategory = .work
     @State private var quickMessage: String?
     @State private var quickAddFailed = false
+    @State private var deletingSessionID: UUID?
+    @State private var deleteError: (id: UUID, message: String)?
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -257,28 +283,53 @@ struct Dashboard: View {
                         .font(.caption).foregroundStyle(.secondary)
                     LazyVStack(spacing: 0) {
                         ForEach(sessions) { session in
-                            Button {
-                                editingSession = session
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        HStack(spacing: 6) {
-                                            Circle().fill(session.category.color).frame(width: 6, height: 6)
-                                            Text(session.category.rawValue).foregroundStyle(session.category.color)
-                                            Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                                        }.font(.system(size: 12, weight: .medium))
-                                        Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
-                                            .font(.caption).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack(spacing: 10) {
+                                    Button {
+                                        deletingSessionID = nil
+                                        editingSession = session
+                                    } label: {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                HStack(spacing: 6) {
+                                                    Circle().fill(session.category.color).frame(width: 6, height: 6)
+                                                    Text(session.category.rawValue).foregroundStyle(session.category.color)
+                                                    Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                                }.font(.system(size: 12, weight: .medium))
+                                                Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
+                                                    .font(.caption).foregroundStyle(.secondary)
+                                            }
+                                            Spacer(minLength: 4)
+                                            Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
+                                            Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
+                                        }
+                                        .contentShape(Rectangle())
                                     }
-                                    Spacer()
-                                    Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
-                                    Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
+                                    Button {
+                                        deleteError = nil
+                                        deletingSessionID = session.id
+                                    } label: {
+                                        Image(systemName: "trash").foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Delete session")
+                                    .accessibilityLabel("Delete \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
                                 }
-                                .contentShape(Rectangle())
-                                .padding(.vertical, 9)
+                                if deletingSessionID == session.id {
+                                    HStack(spacing: 8) {
+                                        Text("Delete this session?").font(.caption).foregroundStyle(.secondary)
+                                        Button("Delete") { delete(session) }.tint(.red)
+                                        Button("Cancel") { deletingSessionID = nil }
+                                    }
+                                    .controlSize(.small)
+                                }
+                                if deleteError?.id == session.id, let message = deleteError?.message {
+                                    Text(message).font(.caption).foregroundStyle(.red)
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Edit \(session.category.rawValue) session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
+                            .padding(.vertical, 9)
                             Divider().opacity(0.5)
                         }
                     }
@@ -328,6 +379,16 @@ struct Dashboard: View {
         } catch {
             quickAddFailed = true
             quickMessage = error.localizedDescription
+        }
+    }
+
+    private func delete(_ session: Session) {
+        do {
+            try tracker.deleteSession(id: session.id)
+            deletingSessionID = nil
+            deleteError = nil
+        } catch {
+            deleteError = (session.id, error.localizedDescription)
         }
     }
 
@@ -535,6 +596,33 @@ struct WeeklyActivityChart: View {
     }
 }
 
+struct StartingCategoryPicker: View {
+    let onChoose: (TrackingCategory) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("What are you tracking?").font(.headline)
+            HStack(spacing: 8) {
+                ForEach(TrackingCategory.allCases, id: \.self) { category in
+                    Button {
+                        onChoose(category)
+                    } label: {
+                        Label(category.rawValue, systemImage: category == .work ? "briefcase.fill" : "music.note")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(category.color)
+                    .accessibilityLabel("Track \(category.rawValue)")
+                }
+            }
+            Text("If you close this, the session stays Work.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tracker: Tracker!
@@ -542,6 +630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var window: NSWindow!
     private var hotKey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
+    private var categoryPopover: NSPopover?
     private var toggleItem: NSMenuItem!
     private var totalsItem: NSMenuItem!
     private var categoryItems: [TrackingCategory: NSMenuItem] = [:]
@@ -573,7 +662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem = menu.addItem(withTitle: "Start tracking    ⌥T", action: #selector(toggle), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(.separator())
-        let categoryHint = menu.addItem(withTitle: "New timers start as Work", action: nil, keyEquivalent: "")
+        let categoryHint = menu.addItem(withTitle: "New timers default to Work", action: nil, keyEquivalent: "")
         categoryHint.isEnabled = false
         for category in TrackingCategory.allCases {
             let item = menu.addItem(withTitle: category.rawValue, action: #selector(selectCategory(_:)), keyEquivalent: "")
@@ -599,6 +688,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.center()
         window.setFrameAutosaveName("TimeTrackerDashboard")
 
+        tracker.onStarted = { [weak self] start in self?.showCategoryPopover(for: start) }
+        tracker.onStopped = { [weak self] in self?.categoryPopover?.close() }
         registerShortcut()
         tracker.onChange = { [weak self] in self?.updateMenu() }
         updateMenu()
@@ -621,6 +712,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if result != noErr { tracker.notice = "Option–T is already in use. You can still start and stop from this window or the menu bar." }
     }
 
+    private func showCategoryPopover(for start: Date) {
+        categoryPopover?.close()
+        guard let button = statusItem.button else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: StartingCategoryPicker { [weak self] category in
+            guard let self else { return }
+            self.tracker.chooseStartingCategory(category, for: start)
+            self.categoryPopover?.close()
+        })
+        categoryPopover = popover
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
     private func updateMenu() {
         statusItem.button?.image = tracker.isRunning
             ? NSImage(systemSymbolName: tracker.data.currentCategory == .work ? "briefcase" : "music.note", accessibilityDescription: tracker.data.currentCategory.rawValue)
@@ -640,6 +745,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { updateMenu() }
     @objc func selectCategory(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let category = TrackingCategory(rawValue: raw) else { return }
+        categoryPopover?.close()
         tracker.switchCategory(to: category)
     }
     @objc func toggle() { tracker.toggle() }

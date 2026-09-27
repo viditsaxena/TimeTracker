@@ -66,6 +66,16 @@ enum TrackingDataTests {
         assert(categorized.currentCategory == .work && categorized.sessions.last!.category == .music)
         assert(DataFile.csv(categorized).contains("1800,false,Music"))
 
+        var pickedAtStart = TrackingData()
+        pickedAtStart.start(at: start)
+        pickedAtStart.chooseCategoryForActiveSession(.music)
+        assert(pickedAtStart.sessions.isEmpty && pickedAtStart.activeStart == start)
+        assert(pickedAtStart.currentCategory == .music, "The start popup should relabel the whole new session")
+        pickedAtStart.stop(at: start.addingTimeInterval(300))
+        assert(pickedAtStart.sessions.count == 1 && pickedAtStart.sessions[0].category == .music)
+        pickedAtStart.chooseCategoryForActiveSession(.work)
+        assert(pickedAtStart.currentCategory == .work && pickedAtStart.sessions[0].category == .music)
+
         let legacyJSON = """
         {"sessions":[{"id":"00000000-0000-0000-0000-000000000001","start":100,"end":160,"interrupted":false}],"activeStart":200,"checkpoint":230}
         """
@@ -116,6 +126,22 @@ enum TrackingDataTests {
         } catch SessionEditError.overlapsAnotherSession { }
         let editedRoundTrip = try JSONDecoder().decode(TrackingData.self, from: JSONEncoder().encode(edited))
         assert(editedRoundTrip.sessions[0].start == changedStart && editedRoundTrip.sessions[0].category == .music)
+
+        var deletion = TrackingData(sessions: [
+            Session(start: originalStart, end: nextStart, category: .work),
+            Session(start: nextStart, end: later, category: .music)
+        ])
+        let deletedID = deletion.sessions[0].id
+        let deleted = try deletion.deleteSession(id: deletedID)
+        assert(deleted.id == deletedID && deletion.sessions.count == 1)
+        assert(deletion.total(in: editedDay, now: editNow, category: .work) == 0)
+        assert(deletion.total(in: editedDay, now: editNow, category: .music) == 3600)
+        assert(!DataFile.csv(deletion).contains("3600,false,Work"))
+        do {
+            _ = try deletion.deleteSession(id: deletedID)
+            fatalError("Deleting the same session twice must fail")
+        } catch SessionEditError.notFound { }
+        assert(deletion.sessions.count == 1)
 
         var extended = TrackingData(sessions: [
             Session(start: originalStart, end: originalStart.addingTimeInterval(600), category: .work),
@@ -257,6 +283,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: latest-gap quick add, running-timer quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
+        print("Passed: session deletion, start category selection, latest-gap quick add, running-timer quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
     }
 }

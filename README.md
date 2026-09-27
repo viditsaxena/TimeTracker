@@ -2,7 +2,7 @@
 
 I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. That's what TimeTracker does.
 
-Press **Option–T** to start or stop the timer, even when you're in another app. Every new timer starts as **Work**. If you're doing music, click the timer in the menu bar and choose **Music**. You don't have to stop the timer first. TimeTracker saves the work part and starts a music part right away. The next time you start a timer, it goes back to Work.
+Press **Option–T** to start or stop the timer, even when you're in another app. When a timer starts, a small popup asks whether it's **Work** or **Music**. Click one and the popup goes away. If you dismiss it, the session stays Work. You can also switch categories from the menu bar while a timer is running. TimeTracker saves the first part and starts the other one right away.
 
 ## Get it on your Mac
 
@@ -25,7 +25,7 @@ The window shows your Work and Music time separately. Each day has two bars, and
 
 If you forgot to track a few minutes, use **− 5 min + Add** near the top of the window. The number starts at 5 and changes in 5-minute steps. Click **Add**, and TimeTracker puts those minutes in the latest open space today. It won't put them on top of time you've already tracked. If a timer is running, it first tries to add the minutes immediately before that timer started. The message below the button tells you where the time went. Work is the default; you can pick Music when the timer is off. If there isn't a long enough gap today, it will tell you.
 
-If you got more than the duration wrong, click the session itself. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** when you're done. TimeTracker won't save an edit that overlaps another session.
+If you got more than the duration wrong, click the session itself. You can change when it started, how long it lasted, and whether it was Work or Music. For the duration, type minutes like `45`, or hours and minutes like `1:30`. You can also type hours, minutes, and seconds like `0:45:30`. Click **Save** when you're done. TimeTracker won't save an edit that overlaps another session. To remove a session, click the trash icon beside it, then confirm **Delete** on that row.
 
 If the missed time happened at a particular time, click **Choose exact time** in the window or menu bar. Pick when you finished and whether it was Work or Music, then click **5 min**, **10 min**, **15 min**, or **20 min**. That click saves a new session. You can also type a different duration and click **Add**. TimeTracker puts the new block before the end time you chose and won't add it on top of another session.
 

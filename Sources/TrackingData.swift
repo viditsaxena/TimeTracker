@@ -100,6 +100,12 @@ struct TrackingData: Codable {
         sessions[index].category = category
     }
 
+    @discardableResult
+    mutating func deleteSession(id: UUID) throws -> Session {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { throw SessionEditError.notFound }
+        return sessions.remove(at: index)
+    }
+
     mutating func extendSession(id: UUID, by duration: TimeInterval, now: Date) throws {
         guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }
         guard let session = sessions.first(where: { $0.id == id }) else { throw SessionEditError.notFound }
@@ -170,6 +176,11 @@ struct TrackingData: Codable {
         activeStart = date
         checkpoint = date
         activeCategory = .work
+    }
+
+    mutating func chooseCategoryForActiveSession(_ category: TrackingCategory) {
+        guard activeStart != nil else { return }
+        activeCategory = category
     }
 
     mutating func stop(at date: Date, interrupted: Bool = false) {
