@@ -18,6 +18,18 @@ struct Session: Codable, Identifiable {
     }
 }
 
+struct StandingSession: Codable, Identifiable {
+    var id = UUID()
+    var start: Date
+    var end: Date
+    var interrupted = false
+
+    var duration: TimeInterval { max(0, end.timeIntervalSince(start)) }
+    func duration(in interval: DateInterval) -> TimeInterval {
+        max(0, min(end, interval.end).timeIntervalSince(max(start, interval.start)))
+    }
+}
+
 enum SessionEditError: LocalizedError {
     case notFound
     case invalidTime
@@ -89,8 +101,29 @@ struct TrackingData: Codable {
     var activeStart: Date?
     var checkpoint: Date?
     var activeCategory: TrackingCategory?
+    var standingSessions: [StandingSession] = []
+    var standingStart: Date?
+    var standingCheckpoint: Date?
 
     var currentCategory: TrackingCategory { activeCategory ?? .work }
+
+    mutating func editStandingSession(id: UUID, start: Date, end: Date, now: Date) throws {
+        guard let index = standingSessions.firstIndex(where: { $0.id == id }) else { throw SessionEditError.notFound }
+        guard start < end else { throw SessionEditError.invalidTime }
+        guard end <= now else { throw SessionEditError.futureTime }
+        guard !standingSessions.contains(where: { $0.id != id && $0.start < end && start < $0.end }),
+              !(standingStart.map { start < now && $0 < end } ?? false) else {
+            throw SessionEditError.overlapsAnotherSession
+        }
+        standingSessions[index].start = start
+        standingSessions[index].end = end
+    }
+
+    @discardableResult
+    mutating func deleteStandingSession(id: UUID) throws -> StandingSession {
+        guard let index = standingSessions.firstIndex(where: { $0.id == id }) else { throw SessionEditError.notFound }
+        return standingSessions.remove(at: index)
+    }
 
     mutating func editSession(id: UUID, start: Date, end: Date, category: TrackingCategory, now: Date) throws {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { throw SessionEditError.notFound }
@@ -193,10 +226,24 @@ struct TrackingData: Codable {
         self.start(at: boundary, category: category)
     }
 
+    mutating func startStanding(at date: Date) {
+        guard standingStart == nil else { return }
+        standingStart = date
+        standingCheckpoint = date
+    }
+
+    mutating func stopStanding(at date: Date, interrupted: Bool = false) {
+        guard let start = standingStart else { return }
+        standingSessions.append(StandingSession(start: start, end: max(start, date), interrupted: interrupted))
+        standingStart = nil
+        standingCheckpoint = nil
+    }
+
     mutating func recover() -> Bool {
-        guard let start = activeStart else { return false }
-        stop(at: checkpoint ?? start, interrupted: true)
-        return true
+        let hadActiveTimer = activeStart != nil || standingStart != nil
+        if let start = activeStart { stop(at: checkpoint ?? start, interrupted: true) }
+        if let start = standingStart { stopStanding(at: standingCheckpoint ?? start, interrupted: true) }
+        return hadActiveTimer
     }
 
     func total(in interval: DateInterval, now: Date, category: TrackingCategory? = nil) -> TimeInterval {
@@ -207,6 +254,30 @@ struct TrackingData: Codable {
             result += Session(start: start, end: max(start, now)).duration(in: interval)
         }
         return result
+    }
+
+    func standingTotal(in interval: DateInterval, now: Date) -> TimeInterval {
+        let finished = standingSessions.reduce(0) { $0 + $1.duration(in: interval) }
+        guard let start = standingStart else { return finished }
+        return finished + StandingSession(start: start, end: max(start, now)).duration(in: interval)
+    }
+}
+
+extension TrackingData {
+    private enum CodingKeys: String, CodingKey {
+        case sessions, activeStart, checkpoint, activeCategory
+        case standingSessions, standingStart, standingCheckpoint
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try values.decodeIfPresent([Session].self, forKey: .sessions) ?? []
+        activeStart = try values.decodeIfPresent(Date.self, forKey: .activeStart)
+        checkpoint = try values.decodeIfPresent(Date.self, forKey: .checkpoint)
+        activeCategory = try values.decodeIfPresent(TrackingCategory.self, forKey: .activeCategory)
+        standingSessions = try values.decodeIfPresent([StandingSession].self, forKey: .standingSessions) ?? []
+        standingStart = try values.decodeIfPresent(Date.self, forKey: .standingStart)
+        standingCheckpoint = try values.decodeIfPresent(Date.self, forKey: .standingCheckpoint)
     }
 }
 
@@ -251,8 +322,11 @@ struct DataFile {
 
     static func csv(_ data: TrackingData) -> String {
         let formatter = ISO8601DateFormatter()
-        let rows = data.sessions.sorted { $0.start < $1.start }.map {
-            "\(formatter.string(from: $0.start)),\(formatter.string(from: $0.end)),\(Int($0.duration)),\($0.interrupted),\($0.category.rawValue)"
+        let rows = (
+            data.sessions.map { ($0.start, $0.end, $0.duration, $0.interrupted, $0.category.rawValue) } +
+            data.standingSessions.map { ($0.start, $0.end, $0.duration, $0.interrupted, "Standing") }
+        ).sorted { $0.0 < $1.0 }.map {
+            "\(formatter.string(from: $0.0)),\(formatter.string(from: $0.1)),\(Int($0.2)),\($0.3),\($0.4)"
         }
         return (["start_utc,end_utc,duration_seconds,interrupted,category"] + rows).joined(separator: "\r\n") + "\r\n"
     }

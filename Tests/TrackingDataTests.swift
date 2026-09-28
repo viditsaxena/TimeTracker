@@ -80,8 +80,51 @@ enum TrackingDataTests {
         """
         var legacy = try JSONDecoder().decode(TrackingData.self, from: Data(legacyJSON.utf8))
         assert(legacy.sessions[0].category == .work && legacy.sessions[0].duration == 60)
+        assert(legacy.standingSessions.isEmpty && legacy.standingStart == nil, "Old files must load without standing data")
         assert(legacy.currentCategory == .work && legacy.recover())
         assert(legacy.sessions.last!.category == .work && legacy.sessions.last!.duration == 30)
+
+        var standing = TrackingData()
+        standing.startStanding(at: start)
+        standing.startStanding(at: start.addingTimeInterval(60))
+        assert(standing.standingStart == start, "Starting twice must not reset standing time")
+        standing.start(at: start.addingTimeInterval(300), category: .music)
+        standing.stop(at: end)
+        assert(standing.standingStart == start && standing.sessions.count == 1, "Stopping a project must not stop standing")
+        assert(standing.standingTotal(in: sundayWeek, now: end) == 1800)
+        assert(standing.standingTotal(in: mondayWeek, now: end) == 1800)
+        standing.stopStanding(at: end)
+        standing.stopStanding(at: end)
+        assert(standing.standingSessions.count == 1 && standing.standingStart == nil)
+        assert(standing.standingSessions[0].duration == 3600)
+        assert(standing.total(in: mondayWeek, now: end, category: .music) == 1800)
+        assert(DataFile.csv(standing).contains("3600,false,Standing"))
+        let standingRoundTrip = try JSONDecoder().decode(TrackingData.self, from: JSONEncoder().encode(standing))
+        assert(standingRoundTrip.standingSessions.count == 1 && standingRoundTrip.standingStart == nil)
+
+        let standingID = standing.standingSessions[0].id
+        try standing.editStandingSession(id: standingID, start: start.addingTimeInterval(300), end: end, now: end)
+        assert(standing.standingSessions[0].duration == 3300, "Standing may overlap a project")
+        standing.startStanding(at: end)
+        do {
+            try standing.editStandingSession(id: standingID, start: start, end: end.addingTimeInterval(60), now: end.addingTimeInterval(60))
+            fatalError("Standing edits must not overlap the running standing timer")
+        } catch SessionEditError.overlapsAnotherSession { }
+        standing.standingCheckpoint = end.addingTimeInterval(30)
+        assert(standing.recover() && standing.standingSessions.last!.interrupted)
+        assert(standing.standingSessions.last!.duration == 30 && standing.standingStart == nil)
+        let removedStanding = try standing.deleteStandingSession(id: standingID)
+        assert(removedStanding.id == standingID && standing.standingSessions.count == 1)
+
+        var bothInterrupted = TrackingData()
+        bothInterrupted.start(at: start, category: .work)
+        bothInterrupted.startStanding(at: start.addingTimeInterval(60))
+        bothInterrupted.checkpoint = start.addingTimeInterval(120)
+        bothInterrupted.standingCheckpoint = start.addingTimeInterval(180)
+        assert(bothInterrupted.recover())
+        assert(bothInterrupted.sessions.last!.duration == 120)
+        assert(bothInterrupted.standingSessions.last!.duration == 120)
+        assert(bothInterrupted.activeStart == nil && bothInterrupted.standingStart == nil)
 
         assert(DurationInput.parse("45") == 2700)
         assert(DurationInput.parse("1:30") == 5400)
@@ -282,6 +325,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: session deletion, start category selection, latest-gap quick add, running-timer quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, crash recovery, persistence, corrupt data handling, and categorized CSV export.")
+        print("Passed: independent standing timer, standing edits and deletion, standing overlap, standing recovery, daily standing totals, session deletion, start category selection, quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, persistence, corrupt data handling, and CSV export.")
     }
 }

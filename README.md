@@ -1,6 +1,6 @@
 # TimeTracker
 
-I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. That's what TimeTracker does.
+I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. Now I can track standing time too, without mixing it into either one.
 
 Press **Option–T** when you want to start. A small popup asks whether you're doing **Work** or **Music**. The timer starts only when you click one. If you close the popup, nothing starts. Press **Option–T** again to stop, even when you're in another app. You can also switch projects from the menu bar while a timer is running. TimeTracker saves the first part and starts the other one right away.
 
@@ -21,7 +21,11 @@ If another app already uses Option–T, you'll need to change that shortcut. You
 
 When the timer is off, you'll see a timer icon in the menu bar. When it's running, you'll see the time next to a briefcase for Work or a music note for Music. Click there to switch between them, add missed time, or open the TimeTracker window.
 
-The window shows your Work and Music time separately. Each day has two bars, and you can look back at earlier weeks. Hover over a bar to see the exact time. You can also see each session and export your sessions as a CSV file. The CSV uses UTC for its dates and times.
+To track standing, click **Stand up** in the window or menu bar menu. Click **Sit down** when you sit. This is a second timer. It can run while you're doing Work or Music, or while neither project timer is running. It doesn't add to your Work or Music hours.
+
+The window shows your Work and Music time separately. Each day still has two project bars. Under them, you'll see standing time for each day. The Today and This week boxes show all three totals separately. You can look back at earlier weeks and hover over a bar or a standing total to see the exact time. You can also see each session and export your sessions as a CSV file. Standing blocks are included as rows marked Standing. The CSV uses UTC for its dates and times.
+
+If you forget to click **Sit down**, click the standing block in the window to fix when it started or how long it lasted. You can delete a standing block there too. Standing blocks can overlap Work or Music, but not another standing block.
 
 If you forgot to track a few minutes, use **− 5 min + Add** near the top of the window. The number starts at 5 and changes in 5-minute steps. Click **Add**, and TimeTracker puts those minutes in the latest open space today. It won't put them on top of time you've already tracked. If a timer is running, it first tries to add the minutes immediately before that timer started. The message below the button tells you where the time went. Work is the default; you can pick Music when the timer is off. If there isn't a long enough gap today, it will tell you.
 
@@ -29,7 +33,7 @@ If you got more than the duration wrong, click the session itself. You can chang
 
 If the missed time happened at a particular time, click **Choose exact time** in the window or menu bar. Pick when you finished and whether it was Work or Music, then click **5 min**, **10 min**, **15 min**, or **20 min**. That click saves a new session. You can also type a different duration and click **Add**. TimeTracker puts the new block before the end time you chose and won't add it on top of another session.
 
-Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops the timer. It won't start again on its own. If the app closes unexpectedly, it recovers time through its last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
+Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops both timers. They won't start again on their own. If the app closes unexpectedly, it recovers time through the last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
 
 Your sessions stay on your Mac in `~/Library/Application Support/TimeTracker/sessions.json`. The app doesn't need an account, an internet connection, or permission to watch your keyboard. The GitHub download doesn't contain anyone's sessions. Sessions from older versions count as Work.
 
@@ -46,4 +50,4 @@ open build/TimeTracker.app
 
 This builds one app for both Apple Silicon and Intel Macs. To run the checks and make a ZIP with its SHA-256 checksum, run `bash package.sh`. To run just the checks, run `bash test.sh`.
 
-For now there are only two kinds of time, Work and Music. You can't add more categories, sync between Macs, or get automatic updates yet. If your Mac stays awake and you stay signed in, the timer keeps going until you stop it.
+For now there are only two project categories, Work and Music. Standing is separate. You can't add more categories, sync between Macs, or get automatic updates yet. If your Mac stays awake and you stay signed in, a timer keeps going until you stop it.

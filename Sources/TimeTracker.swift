@@ -18,13 +18,15 @@ final class Tracker: ObservableObject {
 
     var isRunning: Bool { data.activeStart != nil }
     var elapsed: TimeInterval { data.activeStart.map { max(0, now.timeIntervalSince($0)) } ?? 0 }
+    var isStanding: Bool { data.standingStart != nil }
+    var standingElapsed: TimeInterval { data.standingStart.map { max(0, now.timeIntervalSince($0)) } ?? 0 }
 
     init(file: DataFile) throws {
         self.file = file
         var loaded = try file.load()
         if loaded.recover() {
             try file.save(loaded)
-            notice = "Your previous timer was interrupted. Time through its last saved checkpoint was recovered."
+            notice = "A timer was interrupted. Time through its last saved checkpoint was recovered."
         }
         data = loaded
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -34,9 +36,11 @@ final class Tracker: ObservableObject {
 
     private func tick() {
         now = Date()
-        if isRunning, now.timeIntervalSince(data.checkpoint ?? now) >= 30 {
+        if (isRunning && now.timeIntervalSince(data.checkpoint ?? now) >= 30) ||
+           (isStanding && now.timeIntervalSince(data.standingCheckpoint ?? now) >= 30) {
             var next = data
-            next.checkpoint = now
+            if isRunning { next.checkpoint = now }
+            if isStanding { next.standingCheckpoint = now }
             _ = commit(next)
         }
         onChange?()
@@ -75,6 +79,31 @@ final class Tracker: ObservableObject {
         var next = data
         next.switchCategory(to: category, at: now)
         _ = commit(next)
+    }
+
+    func toggleStanding() {
+        now = Date()
+        var next = data
+        if isStanding { next.stopStanding(at: now) }
+        else { next.startStanding(at: now) }
+        _ = commit(next)
+    }
+
+    func editStandingSession(id: UUID, start: Date, duration: TimeInterval) throws {
+        now = Date()
+        var next = data
+        try next.editStandingSession(id: id, start: start, end: start.addingTimeInterval(duration), now: now)
+        try file.save(next)
+        data = next
+        onChange?()
+    }
+
+    func deleteStandingSession(id: UUID) throws {
+        var next = data
+        _ = try next.deleteStandingSession(id: id)
+        try file.save(next)
+        data = next
+        onChange?()
     }
 
     func editSession(id: UUID, start: Date, duration: TimeInterval, category: TrackingCategory) throws {
@@ -130,6 +159,19 @@ final class Tracker: ObservableObject {
         return success
     }
 
+    @discardableResult
+    func stopAll(reason: String? = nil) -> Bool {
+        guard isRunning || isStanding else { return true }
+        now = Date()
+        var next = data
+        next.stop(at: now)
+        next.stopStanding(at: now)
+        let success = commit(next)
+        if success { onStopped?() }
+        if success, let reason { notice = reason }
+        return success
+    }
+
     func export() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
@@ -152,6 +194,9 @@ struct Dashboard: View {
     @State private var quickAddFailed = false
     @State private var deletingSessionID: UUID?
     @State private var deleteError: (id: UUID, message: String)?
+    @State private var editingStandingSession: StandingSession?
+    @State private var deletingStandingID: UUID?
+    @State private var standingDeleteError: (id: UUID, message: String)?
 
     private var calendar: Calendar { TrackingCalendar.local }
     private var week: DateInterval {
@@ -161,6 +206,9 @@ struct Dashboard: View {
     private var sessions: [Session] {
         tracker.data.sessions.filter { $0.end > week.start && $0.start < week.end }.sorted { $0.start > $1.start }
     }
+    private var standingSessions: [StandingSession] {
+        tracker.data.standingSessions.filter { $0.end > week.start && $0.start < week.end }.sorted { $0.start > $1.start }
+    }
 
     var body: some View {
         ScrollView {
@@ -168,7 +216,7 @@ struct Dashboard: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("TimeTracker").font(.system(size: 25, weight: .bold, design: .rounded))
-                        Text("A little focus. One session at a time.").foregroundStyle(.secondary)
+                        Text("Work, music, and time on your feet.").foregroundStyle(.secondary)
                     }
                     Spacer()
                     Circle().fill(tracker.isRunning ? Color.green : Color.secondary.opacity(0.4)).frame(width: 9, height: 9)
@@ -191,6 +239,22 @@ struct Dashboard: View {
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 23)
                 .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+
+                HStack(spacing: 14) {
+                    Image(systemName: "figure.stand").font(.system(size: 22)).foregroundStyle(.orange)
+                        .frame(width: 30)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(tracker.isStanding ? "Standing now" : "Standing").font(.headline)
+                        Text(tracker.isStanding ? TrackingCalendar.clock(tracker.standingElapsed) : "Separate from Work and Music")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Spacer(minLength: 0)
+                    Button(tracker.isStanding ? "Sit down" : "Stand up", action: tracker.toggleStanding)
+                        .buttonStyle(.borderedProminent).tint(tracker.isStanding ? .orange : .green)
+                        .accessibilityLabel(tracker.isStanding ? "Stop standing timer" : "Start standing timer")
+                }
+                .padding(16)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -330,6 +394,66 @@ struct Dashboard: View {
                         }
                     }
                 }
+                Divider()
+                HStack {
+                    Text("Standing sessions").font(.headline)
+                    Text("\(standingSessions.count)").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                if standingSessions.isEmpty {
+                    Text(tracker.isStanding && weekOffset == 0 ? "This standing block will appear when you sit down." : "No standing time this week.")
+                        .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 12)
+                } else {
+                    Text("Click a standing block to fix its time.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    LazyVStack(spacing: 0) {
+                        ForEach(standingSessions) { session in
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack(spacing: 10) {
+                                    Button {
+                                        deletingStandingID = nil
+                                        editingStandingSession = session
+                                    } label: {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(session.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.orange)
+                                                Text("\(session.start.formatted(date: .omitted, time: .shortened)) – \(session.end.formatted(date: calendar.isDate(session.start, inSameDayAs: session.end) ? .omitted : .abbreviated, time: .shortened))\(session.interrupted ? " · recovered" : "")")
+                                                    .font(.caption).foregroundStyle(.secondary)
+                                            }
+                                            Spacer(minLength: 4)
+                                            Text(TrackingCalendar.clock(session.duration)).font(.system(size: 12, design: .monospaced))
+                                            Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
+                                        }.contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Edit standing session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
+                                    Button {
+                                        standingDeleteError = nil
+                                        deletingStandingID = session.id
+                                    } label: {
+                                        Image(systemName: "trash").foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Delete standing session")
+                                    .accessibilityLabel("Delete standing session from \(session.start.formatted(date: .abbreviated, time: .shortened))")
+                                }
+                                if deletingStandingID == session.id {
+                                    HStack(spacing: 8) {
+                                        Text("Delete this standing block?").font(.caption).foregroundStyle(.secondary)
+                                        Button("Delete") { deleteStanding(session) }.tint(.red)
+                                        Button("Cancel") { deletingStandingID = nil }
+                                    }.controlSize(.small)
+                                }
+                                if standingDeleteError?.id == session.id, let message = standingDeleteError?.message {
+                                    Text(message).font(.caption).foregroundStyle(.red)
+                                }
+                            }
+                            .padding(.vertical, 9)
+                            Divider().opacity(0.5)
+                        }
+                    }
+                }
                 if let notice = tracker.notice {
                     HStack(alignment: .top) {
                         Image(systemName: "info.circle")
@@ -338,13 +462,16 @@ struct Dashboard: View {
                         Button { tracker.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
                     }.foregroundStyle(.secondary).padding(12).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
                 }
-                Text("Saved on this Mac · Weeks start Monday · Sleep pauses the timer")
+                Text("Saved on this Mac · Weeks start Monday · Sleep pauses both timers")
                     .font(.system(size: 10)).foregroundStyle(.tertiary).frame(maxWidth: .infinity)
             }.padding(26)
         }
         .frame(minWidth: 470, minHeight: 640)
         .sheet(item: $editingSession) { session in
             EditSessionSheet(tracker: tracker, session: session)
+        }
+        .sheet(item: $editingStandingSession) { session in
+            EditStandingSessionSheet(tracker: tracker, session: session)
         }
         .sheet(isPresented: $showingAddMissedTime) {
             AddMissedSessionSheet(
@@ -388,6 +515,16 @@ struct Dashboard: View {
         }
     }
 
+    private func deleteStanding(_ session: StandingSession) {
+        do {
+            try tracker.deleteStandingSession(id: session.id)
+            deletingStandingID = nil
+            standingDeleteError = nil
+        } catch {
+            standingDeleteError = (session.id, error.localizedDescription)
+        }
+    }
+
     private func summary(_ title: String, interval: DateInterval) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title).font(.caption).foregroundStyle(.secondary)
@@ -400,6 +537,14 @@ struct Dashboard: View {
                         .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
                 }
             }
+            HStack {
+                Circle().fill(.orange).frame(width: 6, height: 6)
+                Text("Standing").font(.system(size: 12))
+                Spacer(minLength: 4)
+                Text(TrackingCalendar.brief(tracker.data.standingTotal(in: interval, now: tracker.now)))
+                    .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
+            }
+            .help("Standing \(TrackingCalendar.clock(tracker.data.standingTotal(in: interval, now: tracker.now)))")
         }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
             .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
     }
@@ -542,6 +687,69 @@ struct EditSessionSheet: View {
     }
 }
 
+struct EditStandingSessionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var tracker: Tracker
+    let session: StandingSession
+    @State private var start: Date
+    @State private var durationText: String
+    @State private var errorMessage: String?
+
+    init(tracker: Tracker, session: StandingSession) {
+        self.tracker = tracker
+        self.session = session
+        _start = State(initialValue: session.start)
+        _durationText = State(initialValue: TrackingCalendar.clock(session.duration))
+    }
+
+    private var duration: TimeInterval? { DurationInput.parse(durationText) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            Text("Edit standing time").font(.system(size: 20, weight: .semibold))
+            Text("Change when you stood up or how long you stood, then save.")
+                .font(.callout).foregroundStyle(.secondary)
+            DatePicker("Started", selection: $start, displayedComponents: [.date, .hourAndMinute])
+            HStack {
+                Text("Duration")
+                Spacer()
+                TextField("Duration", text: $durationText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 115)
+                    .accessibilityLabel("Standing duration")
+            }
+            Text("Use minutes, like 45, or hours:minutes, like 1:30.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let duration {
+                Text("Ends \(start.addingTimeInterval(duration).formatted(date: .abbreviated, time: .shortened))")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Text("Enter a duration greater than zero.").font(.callout).foregroundStyle(.red)
+            }
+            if let errorMessage { Text(errorMessage).font(.callout).foregroundStyle(.red) }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(duration == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 430)
+    }
+
+    private func save() {
+        guard let duration else { return }
+        do {
+            try tracker.editStandingSession(id: session.id, start: start, duration: duration)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 extension TrackingCategory {
     var color: Color { self == .work ? .indigo : .teal }
 }
@@ -554,6 +762,10 @@ struct WeeklyActivityChart: View {
 
     private func total(_ day: Date, _ category: TrackingCategory) -> TimeInterval {
         data.total(in: calendar.dateInterval(of: .day, for: day)!, now: now, category: category)
+    }
+
+    private func standingTotal(_ day: Date) -> TimeInterval {
+        data.standingTotal(in: calendar.dateInterval(of: .day, for: day)!, now: now)
     }
 
     var body: some View {
@@ -586,6 +798,20 @@ struct WeeklyActivityChart: View {
                         Text(day.formatted(.dateTime.weekday(.abbreviated)))
                             .font(.system(size: 10, weight: calendar.isDateInToday(day) ? .bold : .medium)).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity)
+                }
+            }
+            Divider().opacity(0.5)
+            Text("Standing · \(TrackingCalendar.brief(days.reduce(0) { $0 + standingTotal($1) }))")
+                .font(.system(size: 11, weight: .medium)).foregroundStyle(.orange)
+            HStack(spacing: 12) {
+                ForEach(days, id: \.self) { day in
+                    Text(TrackingCalendar.brief(standingTotal(day)))
+                        .font(.system(size: 10, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(standingTotal(day) > 0 ? Color.orange : Color.secondary)
+                        .frame(maxWidth: .infinity)
+                        .help("\(day.formatted(.dateTime.weekday(.wide))): Standing \(TrackingCalendar.clock(standingTotal(day)))")
+                        .accessibilityLabel("\(day.formatted(.dateTime.weekday(.wide))) Standing")
+                        .accessibilityValue(TrackingCalendar.clock(standingTotal(day)))
                 }
             }
         }
@@ -628,6 +854,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var eventHandler: EventHandlerRef?
     private var categoryPopover: NSPopover?
     private var toggleItem: NSMenuItem!
+    private var standingItem: NSMenuItem!
     private var totalsItem: NSMenuItem!
     private var categoryItems: [TrackingCategory: NSMenuItem] = [:]
 
@@ -666,6 +893,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.representedObject = category.rawValue
             categoryItems[category] = item
         }
+        menu.addItem(.separator())
+        standingItem = menu.addItem(withTitle: "Stand up", action: #selector(toggleStanding), keyEquivalent: "")
+        standingItem.target = self
         menu.addItem(.separator())
         totalsItem = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
         totalsItem.isEnabled = false
@@ -730,13 +960,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.title = tracker.isRunning ? " " + TrackingCalendar.clock(tracker.elapsed) : ""
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         toggleItem.title = "\(tracker.isRunning ? "Stop" : "Start") tracking    ⌥T"
+        standingItem.title = tracker.isStanding ? "Sit down" : "Stand up"
         for (category, item) in categoryItems {
             item.state = tracker.data.currentCategory == category ? .on : .off
             item.isEnabled = tracker.isRunning
         }
         let day = TrackingCalendar.local.dateInterval(of: .day, for: tracker.now)!
-        totalsItem.title = "Today: Work \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .work))) · Music \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .music)))"
-        statusItem.button?.toolTip = "TimeTracker · \(tracker.isRunning ? tracker.data.currentCategory.rawValue : "Paused") · Option–T"
+        totalsItem.title = "Today: Work \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .work))) · Music \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .music))) · Standing \(TrackingCalendar.brief(tracker.data.standingTotal(in: day, now: tracker.now)))"
+        statusItem.button?.toolTip = "TimeTracker · \(tracker.isRunning ? tracker.data.currentCategory.rawValue : "Paused")\(tracker.isStanding ? " · Standing" : "") · Option–T"
     }
 
     func menuWillOpen(_ menu: NSMenu) { updateMenu() }
@@ -746,15 +977,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tracker.switchCategory(to: category)
     }
     @objc func toggle() { tracker.toggle() }
+    @objc func toggleStanding() { tracker.toggleStanding() }
     @objc func showWindow() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc func addMissedTime() { showWindow(); tracker.addMissedTimeRequest = UUID() }
     @objc func export() { showWindow(); tracker.export() }
     @objc func quit() { NSApp.terminate(nil) }
-    @objc func willSleep() { tracker.stop(reason: "Timer stopped when your Mac went to sleep or switched users. Start again when you’re ready.") }
+    @objc func willSleep() { tracker.stopAll(reason: "Timers stopped when your Mac went to sleep or switched users. Start again when you’re ready.") }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let tracker else { return .terminateNow }
-        return tracker.stop() ? .terminateNow : .terminateCancel
+        return tracker.stopAll() ? .terminateNow : .terminateCancel
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
 }
