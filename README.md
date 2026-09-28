@@ -23,6 +23,8 @@ When the timer is off, you'll see a timer icon in the menu bar. When it's runnin
 
 To track standing, click **Stand up** in the window or menu bar menu. Click **Sit down** when you sit. This is a second timer. It can run while you're doing Work or Music, or while neither project timer is running. It doesn't add to your Work or Music hours.
 
+The standing card says **Standing now** or **Sitting now**, so you can tell which state it's in. The menu bar menu says the same thing. Only standing time is counted; sitting isn't a separate timer.
+
 The window shows your Work and Music time separately. Each day still has two project bars. Under them, you'll see standing time for each day. The Today and This week boxes show all three totals separately. You can look back at earlier weeks and hover over a bar or a standing total to see the exact time. You can also see each session and export your sessions as a CSV file. Standing blocks are included as rows marked Standing. The CSV uses UTC for its dates and times.
 
 If you forget to click **Sit down**, click the standing block in the window to fix when it started or how long it lasted. You can delete a standing block there too. Standing blocks can overlap Work or Music, but not another standing block.

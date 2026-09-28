@@ -244,8 +244,8 @@ struct Dashboard: View {
                     Image(systemName: "figure.stand").font(.system(size: 22)).foregroundStyle(.orange)
                         .frame(width: 30)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(tracker.isStanding ? "Standing now" : "Standing").font(.headline)
-                        Text(tracker.isStanding ? TrackingCalendar.clock(tracker.standingElapsed) : "Separate from Work and Music")
+                        Text(tracker.isStanding ? "Standing now" : "Sitting now").font(.headline)
+                        Text(tracker.isStanding ? TrackingCalendar.clock(tracker.standingElapsed) : "Standing timer off")
                             .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
                     Spacer(minLength: 0)
@@ -960,14 +960,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.title = tracker.isRunning ? " " + TrackingCalendar.clock(tracker.elapsed) : ""
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         toggleItem.title = "\(tracker.isRunning ? "Stop" : "Start") tracking    ⌥T"
-        standingItem.title = tracker.isStanding ? "Sit down" : "Stand up"
+        standingItem.title = tracker.isStanding ? "Standing now  ·  Sit down" : "Sitting now  ·  Stand up"
         for (category, item) in categoryItems {
             item.state = tracker.data.currentCategory == category ? .on : .off
             item.isEnabled = tracker.isRunning
         }
         let day = TrackingCalendar.local.dateInterval(of: .day, for: tracker.now)!
         totalsItem.title = "Today: Work \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .work))) · Music \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .music))) · Standing \(TrackingCalendar.brief(tracker.data.standingTotal(in: day, now: tracker.now)))"
-        statusItem.button?.toolTip = "TimeTracker · \(tracker.isRunning ? tracker.data.currentCategory.rawValue : "Paused")\(tracker.isStanding ? " · Standing" : "") · Option–T"
+        statusItem.button?.toolTip = "TimeTracker · \(tracker.isRunning ? tracker.data.currentCategory.rawValue : "Paused") · \(tracker.isStanding ? "Standing now" : "Sitting now") · Option–T"
     }
 
     func menuWillOpen(_ menu: NSMenu) { updateMenu() }
