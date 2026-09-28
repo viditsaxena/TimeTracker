@@ -2,7 +2,7 @@
 
 I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. That's what TimeTracker does.
 
-Press **Option–T** to start or stop the timer, even when you're in another app. When a timer starts, a small popup asks whether it's **Work** or **Music**. Click one and the popup goes away. If you dismiss it, the session stays Work. You can also switch categories from the menu bar while a timer is running. TimeTracker saves the first part and starts the other one right away.
+Press **Option–T** when you want to start. A small popup asks whether you're doing **Work** or **Music**. The timer starts only when you click one. If you close the popup, nothing starts. Press **Option–T** again to stop, even when you're in another app. You can also switch projects from the menu bar while a timer is running. TimeTracker saves the first part and starts the other one right away.
 
 ## Get it on your Mac
 

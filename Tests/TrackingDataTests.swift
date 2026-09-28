@@ -67,13 +67,12 @@ enum TrackingDataTests {
         assert(DataFile.csv(categorized).contains("1800,false,Music"))
 
         var pickedAtStart = TrackingData()
-        pickedAtStart.start(at: start)
-        pickedAtStart.chooseCategoryForActiveSession(.music)
+        assert(pickedAtStart.activeStart == nil && pickedAtStart.sessions.isEmpty, "Choosing a project must precede the timer")
+        pickedAtStart.start(at: start, category: .music)
         assert(pickedAtStart.sessions.isEmpty && pickedAtStart.activeStart == start)
-        assert(pickedAtStart.currentCategory == .music, "The start popup should relabel the whole new session")
+        assert(pickedAtStart.currentCategory == .music, "The selected project must apply from the first second")
         pickedAtStart.stop(at: start.addingTimeInterval(300))
         assert(pickedAtStart.sessions.count == 1 && pickedAtStart.sessions[0].category == .music)
-        pickedAtStart.chooseCategoryForActiveSession(.work)
         assert(pickedAtStart.currentCategory == .work && pickedAtStart.sessions[0].category == .music)
 
         let legacyJSON = """

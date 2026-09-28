@@ -171,15 +171,10 @@ struct TrackingData: Codable {
         }
     }
 
-    mutating func start(at date: Date) {
+    mutating func start(at date: Date, category: TrackingCategory = .work) {
         guard activeStart == nil else { return }
         activeStart = date
         checkpoint = date
-        activeCategory = .work
-    }
-
-    mutating func chooseCategoryForActiveSession(_ category: TrackingCategory) {
-        guard activeStart != nil else { return }
         activeCategory = category
     }
 
@@ -195,8 +190,7 @@ struct TrackingData: Codable {
         guard let start = activeStart, currentCategory != category else { return }
         let boundary = max(start, date)
         stop(at: boundary)
-        self.start(at: boundary)
-        activeCategory = category
+        self.start(at: boundary, category: category)
     }
 
     mutating func recover() -> Bool {

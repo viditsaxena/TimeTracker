@@ -13,7 +13,7 @@ final class Tracker: ObservableObject {
     private let file: DataFile
     private var timer: Timer?
     var onChange: (() -> Void)?
-    var onStarted: ((Date) -> Void)?
+    var onStartRequested: (() -> Void)?
     var onStopped: (() -> Void)?
 
     var isRunning: Bool { data.activeStart != nil }
@@ -56,21 +56,17 @@ final class Tracker: ObservableObject {
     }
 
     func toggle() {
-        now = Date()
-        let wasRunning = isRunning
-        var next = data
-        if wasRunning { next.stop(at: now) } else { next.start(at: now) }
-        if commit(next) {
-            if wasRunning { onStopped?() }
-            else if let start = next.activeStart { onStarted?(start) }
-        }
+        if isRunning { _ = stop() }
+        else { onStartRequested?() }
     }
 
-    func chooseStartingCategory(_ category: TrackingCategory, for start: Date) {
-        guard data.activeStart == start, data.currentCategory != category else { return }
+    @discardableResult
+    func start(category: TrackingCategory) -> Bool {
+        guard !isRunning else { return false }
+        now = Date()
         var next = data
-        next.chooseCategoryForActiveSession(category)
-        _ = commit(next)
+        next.start(at: now, category: category)
+        return commit(next)
     }
 
     func switchCategory(to category: TrackingCategory) {
@@ -180,7 +176,7 @@ struct Dashboard: View {
                 }
 
                 VStack(spacing: 14) {
-                    Text(tracker.isRunning ? "\(tracker.data.currentCategory.rawValue.uppercased()) SESSION" : "NEXT SESSION · WORK")
+                    Text(tracker.isRunning ? "\(tracker.data.currentCategory.rawValue.uppercased()) SESSION" : "CHOOSE A PROJECT TO START")
                         .font(.system(size: 10, weight: .semibold)).tracking(1.6).foregroundStyle(.secondary)
                     Text(TrackingCalendar.clock(tracker.elapsed))
                         .font(.system(size: 48, weight: .medium, design: .rounded)).monospacedDigit()
@@ -615,7 +611,7 @@ struct StartingCategoryPicker: View {
                     .accessibilityLabel("Track \(category.rawValue)")
                 }
             }
-            Text("If you close this, the session stays Work.")
+            Text("The timer starts when you choose. Closing this keeps it off.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(16)
@@ -662,7 +658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem = menu.addItem(withTitle: "Start tracking    ⌥T", action: #selector(toggle), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(.separator())
-        let categoryHint = menu.addItem(withTitle: "New timers default to Work", action: nil, keyEquivalent: "")
+        let categoryHint = menu.addItem(withTitle: "Choose a project to start", action: nil, keyEquivalent: "")
         categoryHint.isEnabled = false
         for category in TrackingCategory.allCases {
             let item = menu.addItem(withTitle: category.rawValue, action: #selector(selectCategory(_:)), keyEquivalent: "")
@@ -688,7 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.center()
         window.setFrameAutosaveName("TimeTrackerDashboard")
 
-        tracker.onStarted = { [weak self] start in self?.showCategoryPopover(for: start) }
+        tracker.onStartRequested = { [weak self] in self?.showCategoryPopover() }
         tracker.onStopped = { [weak self] in self?.categoryPopover?.close() }
         registerShortcut()
         tracker.onChange = { [weak self] in self?.updateMenu() }
@@ -712,15 +708,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if result != noErr { tracker.notice = "Option–T is already in use. You can still start and stop from this window or the menu bar." }
     }
 
-    private func showCategoryPopover(for start: Date) {
+    private func showCategoryPopover() {
         categoryPopover?.close()
         guard let button = statusItem.button else { return }
         let popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: StartingCategoryPicker { [weak self] category in
             guard let self else { return }
-            self.tracker.chooseStartingCategory(category, for: start)
+            let started = self.tracker.start(category: category)
             self.categoryPopover?.close()
+            if !started { self.showWindow() }
         })
         categoryPopover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
