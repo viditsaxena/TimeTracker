@@ -27,9 +27,13 @@ final class Tracker: ObservableObject {
             notice = "A timer was interrupted. Time through its last saved checkpoint was recovered."
         }
         data = loaded
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        let ticker = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
         }
+        // Menu tracking uses a different run-loop mode from the normal UI.
+        RunLoop.main.add(ticker, forMode: .common)
+        RunLoop.main.add(ticker, forMode: .eventTracking)
+        timer = ticker
     }
 
     private func tick() {
