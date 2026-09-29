@@ -226,9 +226,15 @@ struct Dashboard: View {
                 VStack(spacing: 14) {
                     Text(tracker.isRunning ? "\(tracker.data.currentCategory.rawValue.uppercased()) SESSION" : "NEXT SESSION · WORK")
                         .font(.system(size: 10, weight: .semibold)).tracking(1.6).foregroundStyle(.secondary)
-                    Text(TrackingCalendar.clock(tracker.elapsed))
-                        .font(.system(size: 48, weight: .medium, design: .rounded)).monospacedDigit()
-                        .contentTransition(.numericText())
+                    VStack(spacing: 4) {
+                        Text(TrackingCalendar.clock(tracker.elapsed))
+                            .font(.system(size: 48, weight: .medium, design: .rounded)).monospacedDigit()
+                            .contentTransition(.numericText())
+                        if let start = tracker.data.activeStart {
+                            Text("Started at \(start.formatted(date: calendar.isDate(start, inSameDayAs: tracker.now) ? .omitted : .abbreviated, time: .shortened))")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                    }
                     Button(action: tracker.toggle) {
                         Label(tracker.isRunning ? "Stop tracking" : "Start Work", systemImage: tracker.isRunning ? "stop.fill" : "play.fill")
                             .font(.system(size: 14, weight: .semibold)).frame(width: 190).padding(.vertical, 6)
