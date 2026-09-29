@@ -825,19 +825,26 @@ struct StartingCategoryPicker: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("What are you tracking?").font(.headline)
             HStack(spacing: 8) {
-                ForEach(TrackingCategory.allCases, id: \.self) { category in
-                    Button {
-                        onChoose(category)
-                    } label: {
-                        Label(category.rawValue, systemImage: category == .work ? "briefcase.fill" : "music.note")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(category.color)
-                    .accessibilityLabel("Track \(category.rawValue)")
+                Button {
+                    onChoose(.work)
+                } label: {
+                    Label("Work", systemImage: "briefcase.fill").frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(TrackingCategory.work.color)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityLabel("Track Work")
+
+                Button {
+                    onChoose(.music)
+                } label: {
+                    Label("Music", systemImage: "music.note").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(TrackingCategory.music.color)
+                .accessibilityLabel("Track Music")
             }
-            Text("The timer starts when you choose. Closing this keeps it off.")
+            Text("Press Enter for Work, or choose Music. Closing this keeps the timer off.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(16)
