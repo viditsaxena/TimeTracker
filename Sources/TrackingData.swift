@@ -97,6 +97,9 @@ extension Session {
 }
 
 struct TrackingData: Codable {
+    static let minimumSessionDuration: TimeInterval = 5
+    static let minimumWorkBeforeMusicDuration: TimeInterval = 10
+
     var sessions: [Session] = []
     var activeStart: Date?
     var checkpoint: Date?
@@ -211,9 +214,12 @@ struct TrackingData: Codable {
         activeCategory = category
     }
 
-    mutating func stop(at date: Date, interrupted: Bool = false) {
+    mutating func stop(at date: Date, interrupted: Bool = false, minimumDuration: TimeInterval = TrackingData.minimumSessionDuration) {
         guard let start = activeStart else { return }
-        sessions.append(Session(start: start, end: max(start, date), interrupted: interrupted, category: currentCategory))
+        let end = max(start, date)
+        if end.timeIntervalSince(start) >= minimumDuration {
+            sessions.append(Session(start: start, end: end, interrupted: interrupted, category: currentCategory))
+        }
         activeStart = nil
         checkpoint = nil
         activeCategory = nil
@@ -222,7 +228,9 @@ struct TrackingData: Codable {
     mutating func switchCategory(to category: TrackingCategory, at date: Date) {
         guard let start = activeStart, currentCategory != category else { return }
         let boundary = max(start, date)
-        stop(at: boundary)
+        let minimumDuration = currentCategory == .work && category == .music
+            ? Self.minimumWorkBeforeMusicDuration : Self.minimumSessionDuration
+        stop(at: boundary, minimumDuration: minimumDuration)
         self.start(at: boundary, category: category)
     }
 
@@ -234,7 +242,10 @@ struct TrackingData: Codable {
 
     mutating func stopStanding(at date: Date, interrupted: Bool = false) {
         guard let start = standingStart else { return }
-        standingSessions.append(StandingSession(start: start, end: max(start, date), interrupted: interrupted))
+        let end = max(start, date)
+        if end.timeIntervalSince(start) >= Self.minimumSessionDuration {
+            standingSessions.append(StandingSession(start: start, end: end, interrupted: interrupted))
+        }
         standingStart = nil
         standingCheckpoint = nil
     }

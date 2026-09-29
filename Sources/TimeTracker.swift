@@ -13,8 +13,6 @@ final class Tracker: ObservableObject {
     private let file: DataFile
     private var timer: Timer?
     var onChange: (() -> Void)?
-    var onStartRequested: (() -> Void)?
-    var onStopped: (() -> Void)?
 
     var isRunning: Bool { data.activeStart != nil }
     var elapsed: TimeInterval { data.activeStart.map { max(0, now.timeIntervalSince($0)) } ?? 0 }
@@ -61,7 +59,7 @@ final class Tracker: ObservableObject {
 
     func toggle() {
         if isRunning { _ = stop() }
-        else { onStartRequested?() }
+        else { _ = start(category: .work) }
     }
 
     @discardableResult
@@ -154,7 +152,6 @@ final class Tracker: ObservableObject {
         var next = data
         next.stop(at: now)
         let success = commit(next)
-        if success { onStopped?() }
         if success, let reason { notice = reason }
         return success
     }
@@ -167,7 +164,6 @@ final class Tracker: ObservableObject {
         next.stop(at: now)
         next.stopStanding(at: now)
         let success = commit(next)
-        if success { onStopped?() }
         if success, let reason { notice = reason }
         return success
     }
@@ -224,13 +220,13 @@ struct Dashboard: View {
                 }
 
                 VStack(spacing: 14) {
-                    Text(tracker.isRunning ? "\(tracker.data.currentCategory.rawValue.uppercased()) SESSION" : "CHOOSE A PROJECT TO START")
+                    Text(tracker.isRunning ? "\(tracker.data.currentCategory.rawValue.uppercased()) SESSION" : "NEXT SESSION · WORK")
                         .font(.system(size: 10, weight: .semibold)).tracking(1.6).foregroundStyle(.secondary)
                     Text(TrackingCalendar.clock(tracker.elapsed))
                         .font(.system(size: 48, weight: .medium, design: .rounded)).monospacedDigit()
                         .contentTransition(.numericText())
                     Button(action: tracker.toggle) {
-                        Label(tracker.isRunning ? "Stop tracking" : "Start tracking", systemImage: tracker.isRunning ? "stop.fill" : "play.fill")
+                        Label(tracker.isRunning ? "Stop tracking" : "Start Work", systemImage: tracker.isRunning ? "stop.fill" : "play.fill")
                             .font(.system(size: 14, weight: .semibold)).frame(width: 190).padding(.vertical, 6)
                     }
                     .buttonStyle(.borderedProminent).tint(tracker.isRunning ? .orange : .indigo).controlSize(.large)
@@ -818,40 +814,6 @@ struct WeeklyActivityChart: View {
     }
 }
 
-struct StartingCategoryPicker: View {
-    let onChoose: (TrackingCategory) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("What are you tracking?").font(.headline)
-            HStack(spacing: 8) {
-                Button {
-                    onChoose(.work)
-                } label: {
-                    Label("Work", systemImage: "briefcase.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(TrackingCategory.work.color)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityLabel("Track Work")
-
-                Button {
-                    onChoose(.music)
-                } label: {
-                    Label("Music", systemImage: "music.note").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(TrackingCategory.music.color)
-                .accessibilityLabel("Track Music")
-            }
-            Text("Press Enter for Work, or choose Music. Closing this keeps the timer off.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(16)
-        .frame(width: 280)
-    }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tracker: Tracker!
@@ -859,7 +821,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var window: NSWindow!
     private var hotKey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
-    private var categoryPopover: NSPopover?
     private var toggleItem: NSMenuItem!
     private var standingItem: NSMenuItem!
     private var totalsItem: NSMenuItem!
@@ -889,11 +850,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        toggleItem = menu.addItem(withTitle: "Start tracking    ⌥T", action: #selector(toggle), keyEquivalent: "")
+        toggleItem = menu.addItem(withTitle: "Start Work    ⌥T", action: #selector(toggle), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(.separator())
-        let categoryHint = menu.addItem(withTitle: "Choose a project to start", action: nil, keyEquivalent: "")
-        categoryHint.isEnabled = false
         for category in TrackingCategory.allCases {
             let item = menu.addItem(withTitle: category.rawValue, action: #selector(selectCategory(_:)), keyEquivalent: "")
             item.target = self
@@ -921,8 +880,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.center()
         window.setFrameAutosaveName("TimeTrackerDashboard")
 
-        tracker.onStartRequested = { [weak self] in self?.showCategoryPopover() }
-        tracker.onStopped = { [weak self] in self?.categoryPopover?.close() }
         registerShortcut()
         tracker.onChange = { [weak self] in self?.updateMenu() }
         updateMenu()
@@ -945,32 +902,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if result != noErr { tracker.notice = "Option–T is already in use. You can still start and stop from this window or the menu bar." }
     }
 
-    private func showCategoryPopover() {
-        categoryPopover?.close()
-        guard let button = statusItem.button else { return }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: StartingCategoryPicker { [weak self] category in
-            guard let self else { return }
-            let started = self.tracker.start(category: category)
-            self.categoryPopover?.close()
-            if !started { self.showWindow() }
-        })
-        categoryPopover = popover
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-    }
-
     private func updateMenu() {
         statusItem.button?.image = tracker.isRunning
             ? NSImage(systemSymbolName: tracker.data.currentCategory == .work ? "briefcase" : "music.note", accessibilityDescription: tracker.data.currentCategory.rawValue)
             : NSImage(systemSymbolName: "timer", accessibilityDescription: "TimeTracker paused")
         statusItem.button?.title = tracker.isRunning ? " " + TrackingCalendar.clock(tracker.elapsed) : ""
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        toggleItem.title = "\(tracker.isRunning ? "Stop" : "Start") tracking    ⌥T"
+        toggleItem.title = tracker.isRunning ? "Stop tracking    ⌥T" : "Start Work    ⌥T"
         standingItem.title = tracker.isStanding ? "Standing now  ·  Sit down" : "Sitting now  ·  Stand up"
         for (category, item) in categoryItems {
-            item.state = tracker.data.currentCategory == category ? .on : .off
-            item.isEnabled = tracker.isRunning
+            item.state = tracker.isRunning && tracker.data.currentCategory == category ? .on : .off
+            item.isEnabled = true
         }
         let day = TrackingCalendar.local.dateInterval(of: .day, for: tracker.now)!
         totalsItem.title = "Today: Work \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .work))) · Music \(TrackingCalendar.brief(tracker.data.total(in: day, now: tracker.now, category: .music))) · Standing \(TrackingCalendar.brief(tracker.data.standingTotal(in: day, now: tracker.now)))"
@@ -980,8 +922,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { updateMenu() }
     @objc func selectCategory(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let category = TrackingCategory(rawValue: raw) else { return }
-        categoryPopover?.close()
-        tracker.switchCategory(to: category)
+        if tracker.isRunning { tracker.switchCategory(to: category) }
+        else { _ = tracker.start(category: category) }
     }
     @objc func toggle() { tracker.toggle() }
     @objc func toggleStanding() { tracker.toggleStanding() }

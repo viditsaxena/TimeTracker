@@ -2,9 +2,9 @@
 
 I wanted one key to start a timer and the same key to stop it. I also wanted to keep work time and music time apart. Now I can track standing time too, without mixing it into either one.
 
-Press **Option–T** when you want to start. A small popup asks whether you're doing **Work** or **Music**. The timer starts only when you click one. If you close the popup, nothing starts. Press **Option–T** again to stop, even when you're in another app. You can also switch projects from the menu bar while a timer is running. TimeTracker saves the first part and starts the other one right away.
+Press **Option–T** to start Work right away, even when you're in another app. Press it again to stop. There's no project popup now. If you're starting Music, click TimeTracker in the menu bar and choose **Music** instead. You can also choose Music there while Work is running.
 
-If you're starting Work, you can press **Enter** when the popup appears instead of clicking Work.
+If you switch from Work to Music within 10 seconds, TimeTracker drops that little Work block. It also drops any new Work, Music, or standing block shorter than 5 seconds. A block that's exactly 5 seconds is kept. This only affects new blocks; it won't remove anything you've already saved.
 
 ## Get it on your Mac
 
@@ -21,7 +21,7 @@ If another app already uses Option–T, you'll need to change that shortcut. You
 
 ## What you'll see
 
-When the timer is off, you'll see a timer icon in the menu bar. When it's running, you'll see the time next to a briefcase for Work or a music note for Music. Click there to switch between them, add missed time, or open the TimeTracker window.
+When the timer is off, you'll see a timer icon in the menu bar. When it's running, you'll see the time next to a briefcase for Work or a music note for Music. Click there to start Music, switch projects, add missed time, or open the TimeTracker window.
 
 To track standing, click **Stand up** in the window or menu bar menu. Click **Sit down** when you sit. This is a second timer. It can run while you're doing Work or Music, or while neither project timer is running. It doesn't add to your Work or Music hours.
 

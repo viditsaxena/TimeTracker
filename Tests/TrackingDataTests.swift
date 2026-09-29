@@ -66,14 +66,54 @@ enum TrackingDataTests {
         assert(categorized.currentCategory == .work && categorized.sessions.last!.category == .music)
         assert(DataFile.csv(categorized).contains("1800,false,Music"))
 
-        var pickedAtStart = TrackingData()
-        assert(pickedAtStart.activeStart == nil && pickedAtStart.sessions.isEmpty, "Choosing a project must precede the timer")
-        pickedAtStart.start(at: start, category: .music)
-        assert(pickedAtStart.sessions.isEmpty && pickedAtStart.activeStart == start)
-        assert(pickedAtStart.currentCategory == .music, "The selected project must apply from the first second")
-        pickedAtStart.stop(at: start.addingTimeInterval(300))
-        assert(pickedAtStart.sessions.count == 1 && pickedAtStart.sessions[0].category == .music)
-        assert(pickedAtStart.currentCategory == .work && pickedAtStart.sessions[0].category == .music)
+        var directMusic = TrackingData()
+        directMusic.start(at: start, category: .music)
+        assert(directMusic.sessions.isEmpty && directMusic.activeStart == start)
+        assert(directMusic.currentCategory == .music, "Music can start directly without a Work fragment")
+        directMusic.stop(at: start.addingTimeInterval(300))
+        assert(directMusic.sessions.count == 1 && directMusic.sessions[0].category == .music)
+
+        var quickCorrection = TrackingData()
+        quickCorrection.start(at: start)
+        quickCorrection.switchCategory(to: .music, at: start.addingTimeInterval(8))
+        assert(quickCorrection.sessions.isEmpty, "Work under 10 seconds must be discarded when switching to Music")
+        assert(quickCorrection.activeStart == start.addingTimeInterval(8) && quickCorrection.currentCategory == .music)
+        quickCorrection.stop(at: start.addingTimeInterval(13))
+        assert(quickCorrection.sessions.count == 1 && quickCorrection.sessions[0].category == .music)
+        assert(quickCorrection.sessions[0].duration == 5, "Exactly 5 seconds should be saved")
+        assert(quickCorrection.total(in: sundayWeek, now: end, category: .work) == 0)
+
+        var tenSecondWork = TrackingData()
+        tenSecondWork.start(at: start)
+        tenSecondWork.switchCategory(to: .music, at: start.addingTimeInterval(10))
+        assert(tenSecondWork.sessions.count == 1 && tenSecondWork.sessions[0].duration == 10)
+        assert(tenSecondWork.sessions[0].category == .work, "Exactly 10 seconds of Work should be saved")
+
+        var shortSessions = TrackingData()
+        shortSessions.start(at: start)
+        shortSessions.stop(at: start.addingTimeInterval(4))
+        assert(shortSessions.sessions.isEmpty && shortSessions.activeStart == nil, "Work under 5 seconds must be discarded")
+        shortSessions.start(at: start, category: .music)
+        shortSessions.stop(at: start.addingTimeInterval(4))
+        assert(shortSessions.sessions.isEmpty, "Music under 5 seconds must be discarded")
+        shortSessions.start(at: start, category: .music)
+        shortSessions.stop(at: start.addingTimeInterval(5))
+        assert(shortSessions.sessions.count == 1 && shortSessions.sessions[0].duration == 5)
+        shortSessions.startStanding(at: start)
+        shortSessions.stopStanding(at: start.addingTimeInterval(4))
+        assert(shortSessions.standingSessions.isEmpty && shortSessions.standingStart == nil, "Standing under 5 seconds must be discarded")
+        shortSessions.startStanding(at: start)
+        shortSessions.stopStanding(at: start.addingTimeInterval(5))
+        assert(shortSessions.standingSessions.count == 1 && shortSessions.standingSessions[0].duration == 5)
+
+        let previouslySavedShort = TrackingData(sessions: [Session(start: start, end: start.addingTimeInterval(3))])
+        let preservedShort = try JSONDecoder().decode(TrackingData.self, from: JSONEncoder().encode(previouslySavedShort))
+        assert(preservedShort.sessions.count == 1 && preservedShort.sessions[0].duration == 3, "Existing short sessions must not be removed")
+
+        var shortRecovery = TrackingData()
+        shortRecovery.start(at: start)
+        shortRecovery.checkpoint = start.addingTimeInterval(4)
+        assert(shortRecovery.recover() && shortRecovery.sessions.isEmpty, "Interrupted time under 5 seconds must be discarded")
 
         let legacyJSON = """
         {"sessions":[{"id":"00000000-0000-0000-0000-000000000001","start":100,"end":160,"interrupted":false}],"activeStart":200,"checkpoint":230}
@@ -325,6 +365,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: independent standing timer, standing edits and deletion, standing overlap, standing recovery, daily standing totals, session deletion, start category selection, quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, Work defaults, category switching, legacy migration, DST, persistence, corrupt data handling, and CSV export.")
+        print("Passed: immediate Work and Music starts, short-session discard thresholds, existing-session preservation, independent standing timer, standing edits and deletion, standing overlap and recovery, daily totals, session deletion, quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, category switching, legacy migration, DST, persistence, corrupt data handling, and CSV export.")
     }
 }
