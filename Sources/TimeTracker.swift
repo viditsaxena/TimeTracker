@@ -1,7 +1,9 @@
 import AppKit
 import SwiftUI
 import Carbon
+import CoreGraphics
 import UniformTypeIdentifiers
+import UserNotifications
 
 @MainActor
 final class Tracker: ObservableObject {
@@ -12,7 +14,9 @@ final class Tracker: ObservableObject {
     @Published var addMissedTimeRequest = UUID()
     private let file: DataFile
     private var timer: Timer?
+    private var mouseReminder = MouseActivityReminder()
     var onChange: (() -> Void)?
+    var onUntrackedMouseActivity: (() -> Void)?
 
     var isRunning: Bool { data.activeStart != nil }
     var elapsed: TimeInterval { data.activeStart.map { max(0, now.timeIntervalSince($0)) } ?? 0 }
@@ -46,6 +50,12 @@ final class Tracker: ObservableObject {
             _ = commit(next)
         }
         onChange?()
+        let mouseIdleSeconds = isRunning ? .infinity : [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel]
+            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
+            .min() ?? .infinity
+        if mouseReminder.shouldRemind(at: now, mouseIdleSeconds: mouseIdleSeconds, timerRunning: isRunning) {
+            onUntrackedMouseActivity?()
+        }
     }
 
     @discardableResult
@@ -72,6 +82,15 @@ final class Tracker: ObservableObject {
         now = Date()
         var next = data
         next.start(at: now, category: category)
+        return commit(next)
+    }
+
+    @discardableResult
+    func startWithCredit(category: TrackingCategory) throws -> Bool {
+        guard !isRunning else { return false }
+        now = Date()
+        var next = data
+        try next.startWithCredit(at: now, duration: MouseActivityReminder.threshold, category: category)
         return commit(next)
     }
 
@@ -825,7 +844,11 @@ struct WeeklyActivityChart: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
+    private static let activityNotificationID = "untracked-mouse-activity"
+    private static let activityCategoryID = "untracked-mouse-activity-actions"
+    private static let startWorkActionID = "start-work-with-three-minutes"
+    private static let startMusicActionID = "start-music-with-three-minutes"
     private var tracker: Tracker!
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
@@ -835,6 +858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var standingItem: NSMenuItem!
     private var totalsItem: NSMenuItem!
     private var categoryItems: [TrackingCategory: NSMenuItem] = [:]
+    private var wasRunning = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A second launch should reveal the existing app, never create two writers.
@@ -892,6 +916,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         registerShortcut()
         tracker.onChange = { [weak self] in self?.updateMenu() }
+        tracker.onUntrackedMouseActivity = { [weak self] in self?.showActivityReminder() }
+        configureNotifications()
         updateMenu()
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
@@ -912,7 +938,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if result != noErr { tracker.notice = "Option–T is already in use. You can still start and stop from this window or the menu bar." }
     }
 
+    private func configureNotifications() {
+        let work = UNNotificationAction(identifier: Self.startWorkActionID, title: "Work +3 min", options: [])
+        let music = UNNotificationAction(identifier: Self.startMusicActionID, title: "Music +3 min", options: [])
+        let category = UNNotificationCategory(identifier: Self.activityCategoryID, actions: [work, music], intentIdentifiers: [])
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.setNotificationCategories([category])
+    }
+
+    private func showActivityReminder() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            guard !self.tracker.isRunning else { return }
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                self.deliverActivityReminder()
+            case .notDetermined:
+                if (try? await center.requestAuthorization(options: [.alert, .sound])) == true,
+                   !self.tracker.isRunning {
+                    self.deliverActivityReminder()
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    private func deliverActivityReminder() {
+        let content = UNMutableNotificationContent()
+        content.title = "Timer is off"
+        content.body = "You've been using the mouse for 3 minutes. Count that time?"
+        content.sound = .default
+        content.categoryIdentifier = Self.activityCategoryID
+        let request = UNNotificationRequest(identifier: Self.activityNotificationID, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            guard let error else { return }
+            Task { @MainActor in self?.tracker.notice = "Couldn't show the reminder: \(error.localizedDescription)" }
+        }
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Task { @MainActor [weak self] in
+            completionHandler(self?.tracker.isRunning == false ? [.banner, .sound] : [])
+        }
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let action = response.actionIdentifier
+        Task { @MainActor [weak self] in
+            self?.handleActivityReminderAction(action)
+            completionHandler()
+        }
+    }
+
+    private func handleActivityReminderAction(_ action: String) {
+        let category: TrackingCategory
+        switch action {
+        case Self.startWorkActionID: category = .work
+        case Self.startMusicActionID: category = .music
+        case UNNotificationDefaultActionIdentifier:
+            showWindow()
+            return
+        default: return
+        }
+        guard !tracker.isRunning else { return }
+        do {
+            _ = try tracker.startWithCredit(category: category)
+        } catch {
+            tracker.notice = "Couldn't count those 3 minutes: \(error.localizedDescription)"
+            showWindow()
+        }
+    }
+
     private func updateMenu() {
+        if tracker.isRunning && !wasRunning {
+            let center = UNUserNotificationCenter.current()
+            center.removePendingNotificationRequests(withIdentifiers: [Self.activityNotificationID])
+            center.removeDeliveredNotifications(withIdentifiers: [Self.activityNotificationID])
+        }
+        wasRunning = tracker.isRunning
         statusItem.button?.image = tracker.isRunning
             ? NSImage(systemSymbolName: tracker.data.currentCategory == .work ? "briefcase" : "music.note", accessibilityDescription: tracker.data.currentCategory.rawValue)
             : NSImage(systemSymbolName: "timer", accessibilityDescription: "TimeTracker paused")

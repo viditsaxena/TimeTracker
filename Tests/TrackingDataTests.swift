@@ -352,6 +352,31 @@ enum TrackingDataTests {
         assert(midnight.total(in: sundayWeek, now: midnightEnd, category: .music) == 600)
         assert(midnight.total(in: mondayWeek, now: midnightEnd, category: .music) == 600)
 
+        var mouseReminder = MouseActivityReminder()
+        let activityStart = date("2026-09-28T10:00:00-04:00")
+        for second in 0..<180 {
+            assert(!mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(TimeInterval(second)), mouseIdleSeconds: 1, timerRunning: false))
+        }
+        assert(mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(180), mouseIdleSeconds: 1, timerRunning: false))
+        assert(!mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(181), mouseIdleSeconds: 1, timerRunning: false), "A reminder must fire once per activity streak")
+        assert(!mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(195), mouseIdleSeconds: 13, timerRunning: false), "Mouse inactivity resets the streak")
+        assert(!mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(196), mouseIdleSeconds: 1, timerRunning: false))
+        assert(!mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(400), mouseIdleSeconds: 1, timerRunning: false), "A sleep-sized polling gap must reset the streak")
+        assert(!mouseReminder.shouldRemind(at: activityStart.addingTimeInterval(401), mouseIdleSeconds: 1, timerRunning: true), "Running a project timer resets the streak")
+
+        var credited = TrackingData()
+        let creditEnd = activityStart.addingTimeInterval(180)
+        try credited.startWithCredit(at: creditEnd, duration: 180, category: .music)
+        assert(credited.activeStart == activityStart && credited.checkpoint == creditEnd && credited.currentCategory == .music)
+        credited.stop(at: creditEnd.addingTimeInterval(20))
+        assert(credited.sessions.count == 1 && credited.sessions[0].duration == 200)
+        var overlappingCredit = TrackingData(sessions: [Session(start: activityStart.addingTimeInterval(60), end: activityStart.addingTimeInterval(90))])
+        do {
+            try overlappingCredit.startWithCredit(at: creditEnd, duration: 180, category: .work)
+            fatalError("Backdated starts must not overlap saved sessions")
+        } catch SessionEditError.overlapsAnotherSession { }
+        assert(overlappingCredit.activeStart == nil)
+
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("TimeTrackerTests-\(UUID())")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let file = DataFile(url: temporary.appendingPathComponent("sessions.json"))
@@ -365,6 +390,6 @@ enum TrackingDataTests {
         do { _ = try file.load(); fatalError("Corrupt data must not be silently replaced") }
         catch is DecodingError { }
         assert(TrackingCalendar.clock(3661) == "01:01:01")
-        print("Passed: immediate Work and Music starts, short-session discard thresholds, existing-session preservation, independent standing timer, standing edits and deletion, standing overlap and recovery, daily totals, session deletion, quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, category switching, legacy migration, DST, persistence, corrupt data handling, and CSV export.")
+        print("Passed: mouse activity reminder and credited starts, immediate Work and Music starts, short-session discard thresholds, existing-session preservation, independent standing timer, standing edits and deletion, standing overlap and recovery, daily totals, session deletion, quick add, no-overlap checks, missed sessions, cross-midnight totals, session edits, category switching, legacy migration, DST, persistence, corrupt data handling, and CSV export.")
     }
 }

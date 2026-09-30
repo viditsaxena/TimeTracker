@@ -53,6 +53,35 @@ enum QuickAddResult {
     case addedSession(Session)
 }
 
+struct MouseActivityReminder {
+    static let threshold: TimeInterval = 3 * 60
+    private static let maximumMouseIdle: TimeInterval = 12
+    private static let maximumPollGap: TimeInterval = 20
+
+    private var streakStart: Date?
+    private var lastPoll: Date?
+    private var remindedDuringStreak = false
+
+    mutating func shouldRemind(at now: Date, mouseIdleSeconds: TimeInterval, timerRunning: Bool) -> Bool {
+        defer { lastPoll = now }
+        let pollGap = lastPoll.map { now.timeIntervalSince($0) } ?? 0
+        guard !timerRunning,
+              mouseIdleSeconds.isFinite, mouseIdleSeconds >= 0,
+              mouseIdleSeconds <= Self.maximumMouseIdle,
+              pollGap >= 0, pollGap <= Self.maximumPollGap else {
+            streakStart = nil
+            remindedDuringStreak = false
+            return false
+        }
+        if streakStart == nil { streakStart = now }
+        guard !remindedDuringStreak,
+              let streakStart,
+              now.timeIntervalSince(streakStart) >= Self.threshold else { return false }
+        remindedDuringStreak = true
+        return true
+    }
+}
+
 enum DurationInput {
     static func parse(_ input: String) -> TimeInterval? {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -212,6 +241,15 @@ struct TrackingData: Codable {
         activeStart = date
         checkpoint = date
         activeCategory = category
+    }
+
+    mutating func startWithCredit(at now: Date, duration: TimeInterval, category: TrackingCategory) throws {
+        guard activeStart == nil else { return }
+        guard duration.isFinite, duration > 0 else { throw SessionEditError.invalidTime }
+        let start = now.addingTimeInterval(-duration)
+        try validateSessionTime(start: start, end: now, excluding: nil, now: now)
+        self.start(at: start, category: category)
+        checkpoint = now
     }
 
     mutating func stop(at date: Date, interrupted: Bool = false, minimumDuration: TimeInterval = TrackingData.minimumSessionDuration) {
