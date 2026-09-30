@@ -3,7 +3,6 @@ import SwiftUI
 import Carbon
 import CoreGraphics
 import UniformTypeIdentifiers
-import UserNotifications
 
 @MainActor
 final class Tracker: ObservableObject {
@@ -845,15 +844,36 @@ struct WeeklyActivityChart: View {
     }
 }
 
+private struct ActivityReminderPrompt: View {
+    let startWork: () -> Void
+    let startMusic: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Work/Music timer is off").font(.headline)
+            Text("You've been active for 3 minutes. Add that time and start tracking?")
+                .font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Not now", action: dismiss)
+                Spacer(minLength: 0)
+                Button("Start Music +3 min", action: startMusic)
+                Button("Add 3 min & start Work", action: startWork)
+                    .buttonStyle(.borderedProminent).tint(.indigo)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 440)
+    }
+}
+
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
-    private static let activityNotificationID = "untracked-computer-activity"
-    private static let activityCategoryID = "untracked-computer-activity-actions"
-    private static let startWorkActionID = "start-work-with-three-minutes"
-    private static let startMusicActionID = "start-music-with-three-minutes"
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var tracker: Tracker!
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
+    private var activityReminderPanel: NSPanel?
     private var hotKey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
     private var toggleItem: NSMenuItem!
@@ -919,12 +939,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         registerShortcut()
         tracker.onChange = { [weak self] in self?.updateMenu() }
         tracker.onUntrackedComputerActivity = { [weak self] in self?.showActivityReminder() }
-        configureNotifications()
         updateMenu()
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
         showWindow()
-        requestNotificationPermissionIfNeeded()
     }
 
     private func registerShortcut() {
@@ -941,105 +959,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         if result != noErr { tracker.notice = "Option–T is already in use. You can still start and stop from this window or the menu bar." }
     }
 
-    private func configureNotifications() {
-        let work = UNNotificationAction(identifier: Self.startWorkActionID, title: "Work +3 min", options: [])
-        let music = UNNotificationAction(identifier: Self.startMusicActionID, title: "Music +3 min", options: [])
-        let category = UNNotificationCategory(identifier: Self.activityCategoryID, actions: [work, music], intentIdentifiers: [])
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.setNotificationCategories([category])
-    }
-
-    private func requestNotificationPermissionIfNeeded() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let center = UNUserNotificationCenter.current()
-            let settings = await center.notificationSettings()
-            switch settings.authorizationStatus {
-            case .notDetermined:
-                do {
-                    let granted = try await center.requestAuthorization(options: [.alert, .sound])
-                    if !granted {
-                        self.tracker.notice = "Activity reminders need notifications. You can turn them on in System Settings → Notifications → TimeTracker."
-                    }
-                } catch {
-                    self.tracker.notice = "Couldn't ask for notification permission: \(error.localizedDescription)"
-                }
-            case .denied:
-                self.tracker.notice = "Activity reminders need notifications. You can turn them on in System Settings → Notifications → TimeTracker."
-            default:
-                break
-            }
-        }
-    }
-
     private func showActivityReminder() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let center = UNUserNotificationCenter.current()
-            let settings = await center.notificationSettings()
-            guard !self.tracker.isRunning else { return }
-            switch settings.authorizationStatus {
-            case .authorized, .provisional:
-                self.deliverActivityReminder()
-            default:
-                break
-            }
+        guard !tracker.isRunning, activityReminderPanel?.isVisible != true else { return }
+        let panel = activityReminderPanel ?? makeActivityReminderPanel()
+        activityReminderPanel = panel
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main {
+            let visible = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(x: visible.maxX - panel.frame.width - 20,
+                                         y: visible.maxY - panel.frame.height - 20))
         }
+        panel.orderFrontRegardless()
+        NSSound.beep()
     }
 
-    private func deliverActivityReminder() {
-        let content = UNMutableNotificationContent()
-        content.title = "Timer is off"
-        content.body = "You've been active on your Mac for 3 minutes. Count that time?"
-        content.sound = .default
-        content.categoryIdentifier = Self.activityCategoryID
-        let request = UNNotificationRequest(identifier: Self.activityNotificationID, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { [weak self] error in
-            guard let error else { return }
-            Task { @MainActor in self?.tracker.notice = "Couldn't show the reminder: \(error.localizedDescription)" }
-        }
+    private func makeActivityReminderPanel() -> NSPanel {
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 145),
+                            styleMask: [.titled, .closable, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.title = "TimeTracker reminder"
+        panel.isReleasedWhenClosed = false
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications]
+        panel.contentView = NSHostingView(rootView: ActivityReminderPrompt(
+            startWork: { [weak self] in self?.startFromActivityReminder(category: .work) },
+            startMusic: { [weak self] in self?.startFromActivityReminder(category: .music) },
+            dismiss: { [weak self] in self?.dismissActivityReminder() }
+        ))
+        return panel
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        Task { @MainActor [weak self] in
-            completionHandler(self?.tracker.isRunning == false ? [.banner, .sound] : [])
-        }
+    private func dismissActivityReminder() {
+        activityReminderPanel?.orderOut(nil)
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        let action = response.actionIdentifier
-        Task { @MainActor [weak self] in
-            self?.handleActivityReminderAction(action)
-            completionHandler()
-        }
-    }
-
-    private func handleActivityReminderAction(_ action: String) {
-        let category: TrackingCategory
-        switch action {
-        case Self.startWorkActionID: category = .work
-        case Self.startMusicActionID: category = .music
-        case UNNotificationDefaultActionIdentifier:
-            showWindow()
-            return
-        default: return
-        }
+    private func startFromActivityReminder(category: TrackingCategory) {
         guard !tracker.isRunning else { return }
         do {
-            _ = try tracker.startWithCredit(category: category)
+            if try tracker.startWithCredit(category: category) { dismissActivityReminder() }
         } catch {
             tracker.notice = "Couldn't count those 3 minutes: \(error.localizedDescription)"
+            dismissActivityReminder()
             showWindow()
         }
     }
 
     private func updateMenu() {
-        if tracker.isRunning && !wasRunning {
-            let center = UNUserNotificationCenter.current()
-            center.removePendingNotificationRequests(withIdentifiers: [Self.activityNotificationID])
-            center.removeDeliveredNotifications(withIdentifiers: [Self.activityNotificationID])
-        }
+        if tracker.isRunning && !wasRunning { dismissActivityReminder() }
         wasRunning = tracker.isRunning
         statusItem.button?.image = tracker.isRunning
             ? NSImage(systemSymbolName: tracker.data.currentCategory == .work ? "briefcase" : "music.note", accessibilityDescription: tracker.data.currentCategory.rawValue)
@@ -1069,7 +1035,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc func addMissedTime() { showWindow(); tracker.addMissedTimeRequest = UUID() }
     @objc func export() { showWindow(); tracker.export() }
     @objc func quit() { NSApp.terminate(nil) }
-    @objc func willSleep() { tracker.stopAll(reason: "Timers stopped when your Mac went to sleep or switched users. Start again when you’re ready.") }
+    @objc func willSleep() {
+        dismissActivityReminder()
+        tracker.stopAll(reason: "Timers stopped when your Mac went to sleep or switched users. Start again when you’re ready.")
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let tracker else { return .terminateNow }

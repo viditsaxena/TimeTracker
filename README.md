@@ -6,7 +6,7 @@ Press **Option–T** to start Work right away, even when you're in another app. 
 
 If you switch from Work to Music within 10 seconds, TimeTracker drops that little Work block. It also drops any new Work, Music, or standing block shorter than 5 seconds. A block that's exactly 5 seconds is kept. This only affects new blocks; it won't remove anything you've already saved.
 
-If you forget to start a timer but keep using your mouse, trackpad, or keyboard for three minutes, TimeTracker sends one reminder. Short pauses are fine. Choose **Work +3 min** or **Music +3 min** to start that timer with those three minutes already counted. It won't keep reminding you during the same stretch of activity. Being at your Mac doesn't always mean you're working, so you can ignore the reminder. Your Mac will ask to allow notifications when you open this version of TimeTracker.
+If you forget to start a timer but keep using your mouse, trackpad, or keyboard for three minutes, TimeTracker shows a small reminder that stays until you choose. Short pauses are fine. Click **Add 3 min & start Work** or **Start Music +3 min** to start that timer with those three minutes already counted. Click **Not now** if you don't want to count it. It won't keep reminding you during the same stretch of activity. Being at your Mac doesn't always mean you're working, so you decide whether to add the time.
 
 ## Get it on your Mac
 
