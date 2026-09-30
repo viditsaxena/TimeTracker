@@ -6,7 +6,7 @@ Press **Option–T** to start Work right away, even when you're in another app. 
 
 If you switch from Work to Music within 10 seconds, TimeTracker drops that little Work block. It also drops any new Work, Music, or standing block shorter than 5 seconds. A block that's exactly 5 seconds is kept. This only affects new blocks; it won't remove anything you've already saved.
 
-If you forget to start a timer but keep moving or scrolling the mouse for three minutes, TimeTracker sends one reminder. Choose **Work +3 min** or **Music +3 min** to start that timer with those three minutes already counted. It won't keep reminding you during the same stretch of mouse activity. Moving the mouse doesn't always mean you're working, so you can ignore the reminder. Your Mac will ask to allow notifications the first time this happens.
+If you forget to start a timer but keep using your mouse, trackpad, or keyboard for three minutes, TimeTracker sends one reminder. Short pauses are fine. Choose **Work +3 min** or **Music +3 min** to start that timer with those three minutes already counted. It won't keep reminding you during the same stretch of activity. Being at your Mac doesn't always mean you're working, so you can ignore the reminder. Your Mac will ask to allow notifications when you open this version of TimeTracker.
 
 ## Get it on your Mac
 
@@ -41,7 +41,7 @@ If the missed time happened at a particular time, click **Choose exact time** in
 
 Closing the window leaves TimeTracker running in the menu bar. Quitting the app, putting your Mac to sleep, or switching users stops both timers. They won't start again on their own. If the app closes unexpectedly, it recovers time through the last save, which happens about every 30 seconds. A session that crosses midnight or a week boundary counts toward the right days and weeks.
 
-Your sessions stay on your Mac in `~/Library/Application Support/TimeTracker/sessions.json`. The app doesn't need an account or an internet connection. It checks how recently you moved or scrolled the mouse, but doesn't record where you pointed or what you typed. The GitHub download doesn't contain anyone's sessions. Sessions from older versions count as Work.
+Your sessions stay on your Mac in `~/Library/Application Support/TimeTracker/sessions.json`. The app doesn't need an account or an internet connection. It checks how recently you used the mouse, trackpad, or keyboard, but doesn't record where you pointed or what you typed. The GitHub download doesn't contain anyone's sessions. Sessions from older versions count as Work.
 
 To have TimeTracker open when you log in, add it in **System Settings → General → Login Items & Extensions**. When you install a new version, quit the old one first. Replacing the app won't remove your saved sessions.
 

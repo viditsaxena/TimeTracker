@@ -14,9 +14,9 @@ final class Tracker: ObservableObject {
     @Published var addMissedTimeRequest = UUID()
     private let file: DataFile
     private var timer: Timer?
-    private var mouseReminder = MouseActivityReminder()
+    private var activityReminder = ComputerActivityReminder()
     var onChange: (() -> Void)?
-    var onUntrackedMouseActivity: (() -> Void)?
+    var onUntrackedComputerActivity: (() -> Void)?
 
     var isRunning: Bool { data.activeStart != nil }
     var elapsed: TimeInterval { data.activeStart.map { max(0, now.timeIntervalSince($0)) } ?? 0 }
@@ -50,11 +50,13 @@ final class Tracker: ObservableObject {
             _ = commit(next)
         }
         onChange?()
-        let mouseIdleSeconds = isRunning ? .infinity : [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel]
+        // Only the age of the last input is read; no key or pointer data is stored.
+        let inputIdleSeconds = isRunning ? .infinity : [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged,
+                                                      .leftMouseDown, .rightMouseDown, .scrollWheel, .keyDown]
             .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
             .min() ?? .infinity
-        if mouseReminder.shouldRemind(at: now, mouseIdleSeconds: mouseIdleSeconds, timerRunning: isRunning) {
-            onUntrackedMouseActivity?()
+        if activityReminder.shouldRemind(at: now, inputIdleSeconds: inputIdleSeconds, timerRunning: isRunning) {
+            onUntrackedComputerActivity?()
         }
     }
 
@@ -90,7 +92,7 @@ final class Tracker: ObservableObject {
         guard !isRunning else { return false }
         now = Date()
         var next = data
-        try next.startWithCredit(at: now, duration: MouseActivityReminder.threshold, category: category)
+        try next.startWithCredit(at: now, duration: ComputerActivityReminder.threshold, category: category)
         return commit(next)
     }
 
@@ -845,8 +847,8 @@ struct WeeklyActivityChart: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
-    private static let activityNotificationID = "untracked-mouse-activity"
-    private static let activityCategoryID = "untracked-mouse-activity-actions"
+    private static let activityNotificationID = "untracked-computer-activity"
+    private static let activityCategoryID = "untracked-computer-activity-actions"
     private static let startWorkActionID = "start-work-with-three-minutes"
     private static let startMusicActionID = "start-music-with-three-minutes"
     private var tracker: Tracker!
@@ -916,12 +918,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         registerShortcut()
         tracker.onChange = { [weak self] in self?.updateMenu() }
-        tracker.onUntrackedMouseActivity = { [weak self] in self?.showActivityReminder() }
+        tracker.onUntrackedComputerActivity = { [weak self] in self?.showActivityReminder() }
         configureNotifications()
         updateMenu()
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
         showWindow()
+        requestNotificationPermissionIfNeeded()
     }
 
     private func registerShortcut() {
@@ -947,6 +950,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         center.setNotificationCategories([category])
     }
 
+    private func requestNotificationPermissionIfNeeded() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            switch settings.authorizationStatus {
+            case .notDetermined:
+                do {
+                    let granted = try await center.requestAuthorization(options: [.alert, .sound])
+                    if !granted {
+                        self.tracker.notice = "Activity reminders need notifications. You can turn them on in System Settings → Notifications → TimeTracker."
+                    }
+                } catch {
+                    self.tracker.notice = "Couldn't ask for notification permission: \(error.localizedDescription)"
+                }
+            case .denied:
+                self.tracker.notice = "Activity reminders need notifications. You can turn them on in System Settings → Notifications → TimeTracker."
+            default:
+                break
+            }
+        }
+    }
+
     private func showActivityReminder() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -956,11 +982,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             switch settings.authorizationStatus {
             case .authorized, .provisional:
                 self.deliverActivityReminder()
-            case .notDetermined:
-                if (try? await center.requestAuthorization(options: [.alert, .sound])) == true,
-                   !self.tracker.isRunning {
-                    self.deliverActivityReminder()
-                }
             default:
                 break
             }
@@ -970,7 +991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func deliverActivityReminder() {
         let content = UNMutableNotificationContent()
         content.title = "Timer is off"
-        content.body = "You've been using the mouse for 3 minutes. Count that time?"
+        content.body = "You've been active on your Mac for 3 minutes. Count that time?"
         content.sound = .default
         content.categoryIdentifier = Self.activityCategoryID
         let request = UNNotificationRequest(identifier: Self.activityNotificationID, content: content, trigger: nil)

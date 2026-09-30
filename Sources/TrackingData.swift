@@ -53,21 +53,21 @@ enum QuickAddResult {
     case addedSession(Session)
 }
 
-struct MouseActivityReminder {
+struct ComputerActivityReminder {
     static let threshold: TimeInterval = 3 * 60
-    private static let maximumMouseIdle: TimeInterval = 12
+    private static let maximumInputIdle: TimeInterval = 60
     private static let maximumPollGap: TimeInterval = 20
 
     private var streakStart: Date?
     private var lastPoll: Date?
     private var remindedDuringStreak = false
 
-    mutating func shouldRemind(at now: Date, mouseIdleSeconds: TimeInterval, timerRunning: Bool) -> Bool {
+    mutating func shouldRemind(at now: Date, inputIdleSeconds: TimeInterval, timerRunning: Bool) -> Bool {
         defer { lastPoll = now }
         let pollGap = lastPoll.map { now.timeIntervalSince($0) } ?? 0
         guard !timerRunning,
-              mouseIdleSeconds.isFinite, mouseIdleSeconds >= 0,
-              mouseIdleSeconds <= Self.maximumMouseIdle,
+              inputIdleSeconds.isFinite, inputIdleSeconds >= 0,
+              inputIdleSeconds <= Self.maximumInputIdle,
               pollGap >= 0, pollGap <= Self.maximumPollGap else {
             streakStart = nil
             remindedDuringStreak = false
